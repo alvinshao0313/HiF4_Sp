@@ -1,0 +1,59 @@
+# Python caches
+__pycache__/
+*.py[cod]
+*.pyo
+.python-version
+.ipynb_checkpoints/
+
+# Python packaging / build outputs
+build/
+dist/
+*.egg-info/
+*.egg
+*.so
+*.o
+*.a
+*.dylib
+*.dll
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Project outputs
+results/
+Qmodel/
+.moe_override/
+offload/
+hif4gptq_logs/
+HiFloat4/hif4gptq_logs/
+
+# Large model / dataset artifacts
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.parquet
+*.arrow
+*.jsonl.gz
+*.mp4
+*.mkv
+*.mov
+*.avi
+HiFloat4/datasets/
+
+# Logs
+*.log
+wandb/
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+
+# Local Codex / agent state
+.codex
+.codex/
