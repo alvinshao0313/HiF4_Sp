@@ -312,16 +312,17 @@ def parse_args():
         help="开启 vLLM 普通 dense linear 输入激活的 HiF4 hifx4 fake quant-dequant。依赖本仓库 vLLM 本地补丁。",
     )
     parser.add_argument(
-        "--hif4_act_qtype",
-        type=str,
-        default="hifx4",
-        help="HiF4 激活伪量化类型。当前 vLLM 补丁只支持 hifx4。",
+        "--nvf4_fake_act",
+        action="store_true",
+        help="开启 vLLM 普通 dense linear 输入激活的 NVFP4 fake quant-dequant。依赖 model_path 下的 nvfp4_activation_scales.safetensors。",
     )
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
+    if args.hif4_fake_act and args.nvf4_fake_act:
+        raise ValueError("--hif4_fake_act 和 --nvf4_fake_act 不能同时开启")
 
     # 若指定 num_experts_per_tok，为本地 MoE 模型准备覆盖目录并替换 model_path
     if args.num_experts_per_tok is not None:
@@ -329,6 +330,21 @@ def main():
             args.model_path, args.num_experts_per_tok
         )
         print(f"MoE 已覆盖 num_experts_per_tok={args.num_experts_per_tok}，使用目录: {args.model_path}")
+
+    nvf4_activation_scales_path = None
+    if args.nvf4_fake_act:
+        model_path = os.path.abspath(args.model_path)
+        if not os.path.isdir(model_path):
+            raise ValueError(f"--nvf4_fake_act 只支持本地 model_path 目录: {args.model_path}")
+        nvf4_activation_scales_path = os.path.join(
+            model_path,
+            "nvfp4_activation_scales.safetensors",
+        )
+        if not os.path.isfile(nvf4_activation_scales_path):
+            raise FileNotFoundError(
+                "--nvf4_fake_act 需要转换时保存的 activation scale 文件: "
+                f"{nvf4_activation_scales_path}"
+            )
 
     # tensor_parallel_size 未设置时取当前可见 GPU 数
     tensor_parallel_size = args.tensor_parallel_size
@@ -386,7 +402,11 @@ def main():
     if args.hif4_fake_act:
         vllm_model_kwargs["additional_config"] = {
             "hif4_fake_act": True,
-            "hif4_act_qtype": args.hif4_act_qtype,
+        }
+    if args.nvf4_fake_act:
+        vllm_model_kwargs["additional_config"] = {
+            "nvf4_fake_act": True,
+            "nvf4_activation_scales_path": nvf4_activation_scales_path,
         }
     if args.batch_size is not None:
         if args.batch_size < 1:

@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
 import itertools
+import os
 from abc import abstractmethod
 
 import torch
@@ -22,6 +23,7 @@ from vllm.model_executor.layers.batch_invariant import (
     linear_batch_invariant,
 )
 from vllm.model_executor.layers.quantization import hif4_fake
+from NVFP4.torch_fake import fake_quant_nvfp4_activation
 from vllm.model_executor.layers.quantization.base_config import (
     QuantizationConfig,
     QuantizeMethodBase,
@@ -183,6 +185,14 @@ class LinearMethodBase(QuantizeMethodBase):
 class UnquantizedLinearMethod(LinearMethodBase):
     """Linear method without quantization."""
 
+    _NVF4_ACTIVATION_SCALE_CACHE: dict[str, dict[str, torch.Tensor]] = {}
+    _NVF4_FUSED_PREFIX_SUFFIXES = {
+        "qkv_proj": ("q_proj", "k_proj", "v_proj"),
+        "gate_up_proj": ("gate_proj", "up_proj"),
+        "in_proj_qkvz": ("in_proj_qkv", "in_proj_z"),
+        "in_proj_ba": ("in_proj_b", "in_proj_a"),
+    }
+
     def __init__(self):
         super().__init__()
         from vllm.config import get_current_vllm_config_or_none
@@ -195,21 +205,127 @@ class UnquantizedLinearMethod(LinearMethodBase):
         ) or {}
 
         self.hif4_fake_act = bool(additional_config.get("hif4_fake_act", False))
-        self.hif4_act_qtype = str(
-            additional_config.get("hif4_act_qtype", "hifx4")
-        ).lower()
-        if self.hif4_fake_act and self.hif4_act_qtype != "hifx4":
-            raise ValueError(
-                "HiF4 fake activation quantization only supports hifx4."
-            )
+        self.nvf4_fake_act = bool(additional_config.get("nvf4_fake_act", False))
+        self.nvf4_activation_scales_path = additional_config.get(
+            "nvf4_activation_scales_path"
+        )
+        if self.hif4_fake_act and self.nvf4_fake_act:
+            raise ValueError("hif4_fake_act and nvf4_fake_act cannot both be enabled.")
+        if self.nvf4_fake_act:
+            if not self.nvf4_activation_scales_path:
+                raise ValueError(
+                    "nvf4_fake_act requires nvf4_activation_scales_path."
+                )
+            if not os.path.isfile(self.nvf4_activation_scales_path):
+                raise FileNotFoundError(
+                    "NVFP4 activation scale file not found: "
+                    f"{self.nvf4_activation_scales_path}"
+                )
 
     @staticmethod
-    def _skip_hif4_fake_act(layer: torch.nn.Module) -> bool:
+    def _skip_fake_act(layer: torch.nn.Module) -> bool:
         prefix = getattr(layer, "prefix", "")
         return (
             prefix == "lm_head"
             or prefix.endswith(".lm_head")
             or ".lm_head." in prefix
+        )
+
+    @classmethod
+    def _skip_nvf4_fake_act(cls, layer: torch.nn.Module) -> bool:
+        prefix = getattr(layer, "prefix", "")
+        return cls._skip_fake_act(layer) or ".linear_attn." in prefix
+
+    @classmethod
+    def _load_nvf4_activation_scales(cls, path: str) -> dict[str, torch.Tensor]:
+        path = os.path.abspath(path)
+        if path in cls._NVF4_ACTIVATION_SCALE_CACHE:
+            return cls._NVF4_ACTIVATION_SCALE_CACHE[path]
+
+        from safetensors import safe_open
+
+        scales: dict[str, torch.Tensor] = {}
+        with safe_open(path, framework="pt", device="cpu") as handle:
+            for key in handle.keys():
+                tensor = handle.get_tensor(key)
+                if tensor.numel() != 1:
+                    raise ValueError(
+                        "NVFP4 activation scale must be scalar: "
+                        f"{key} has shape {tuple(tensor.shape)}"
+                    )
+                scales[key] = tensor.reshape(()).to(torch.float32).contiguous()
+        cls._NVF4_ACTIVATION_SCALE_CACHE[path] = scales
+        return scales
+
+    @staticmethod
+    def _nvf4_key_candidates(prefix: str) -> list[str]:
+        key_prefixes = [prefix]
+        if prefix.startswith("model.layers."):
+            key_prefixes.append(
+                "model.language_model.layers."
+                + prefix[len("model.layers.") :]
+            )
+        return [f"{key_prefix}.input_global_scale" for key_prefix in key_prefixes]
+
+    @classmethod
+    def _nvf4_scale_prefixes(cls, prefix: str) -> tuple[str, ...]:
+        for fused_suffix, shard_suffixes in cls._NVF4_FUSED_PREFIX_SUFFIXES.items():
+            marker = f".{fused_suffix}"
+            if prefix.endswith(marker):
+                base = prefix[: -len(fused_suffix)]
+                return tuple(f"{base}{suffix}" for suffix in shard_suffixes)
+        return (prefix,)
+
+    @classmethod
+    def _find_nvf4_scale_for_prefix(
+        cls,
+        scales: dict[str, torch.Tensor],
+        prefix: str,
+    ) -> torch.Tensor:
+        candidates = cls._nvf4_key_candidates(prefix)
+        found = [(key, scales[key]) for key in candidates if key in scales]
+        if not found:
+            raise ValueError(
+                "Missing NVFP4 activation scale for linear layer prefix "
+                f"{prefix}. Tried keys: {candidates}"
+            )
+        first_key, first_value = found[0]
+        for key, value in found[1:]:
+            if not torch.equal(value, first_value):
+                raise ValueError(
+                    "Conflicting NVFP4 activation scales for linear layer prefix "
+                    f"{prefix}: {first_key} and {key}"
+                )
+        return first_value
+
+    def _get_nvf4_input_global_scale(self, layer: torch.nn.Module) -> torch.Tensor:
+        prefix = getattr(layer, "prefix", "")
+        if not prefix:
+            raise ValueError("NVFP4 activation scale lookup requires layer.prefix.")
+
+        assert self.nvf4_activation_scales_path is not None
+        scales = self._load_nvf4_activation_scales(self.nvf4_activation_scales_path)
+        scale_values = [
+            self._find_nvf4_scale_for_prefix(scales, scale_prefix)
+            for scale_prefix in self._nvf4_scale_prefixes(prefix)
+        ]
+        first_value = scale_values[0]
+        for value in scale_values[1:]:
+            if not torch.equal(value, first_value):
+                raise ValueError(
+                    "Fused NVFP4 activation scales must be identical for "
+                    f"linear layer prefix {prefix}."
+                )
+        return first_value
+
+    def _setup_nvf4_fake_act(self, layer: torch.nn.Module) -> None:
+        if not self.nvf4_fake_act or self._skip_nvf4_fake_act(layer):
+            return
+        input_global_scale = self._get_nvf4_input_global_scale(layer)
+        layer.register_buffer(
+            "_nvf4_input_global_scale",
+            input_global_scale.reshape(()),
+            persistent=False,
         )
 
     def create_weights(
@@ -240,8 +356,19 @@ class UnquantizedLinearMethod(LinearMethodBase):
 
         layer.register_parameter("weight", weight)
         set_weight_attrs(weight, extra_weight_attrs)
+        self._setup_nvf4_fake_act(layer)
 
     def process_weights_after_loading(self, layer: torch.nn.Module) -> None:
+        if self.nvf4_fake_act and not self._skip_nvf4_fake_act(layer):
+            if not hasattr(layer, "_nvf4_input_global_scale"):
+                raise ValueError(
+                    "NVFP4 fake activation scale was not initialized for "
+                    f"linear layer prefix {getattr(layer, 'prefix', '')}."
+                )
+            layer._nvf4_input_global_scale = layer._nvf4_input_global_scale.to(
+                device=layer.weight.device,
+                dtype=torch.float32,
+            )
         if current_platform.is_cpu():
             from vllm.model_executor.layers.utils import dispatch_cpu_unquantized_gemm
 
@@ -253,8 +380,21 @@ class UnquantizedLinearMethod(LinearMethodBase):
         x: torch.Tensor,
         bias: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        if self.hif4_fake_act and not self._skip_hif4_fake_act(layer):
+        if self.hif4_fake_act and not self._skip_fake_act(layer):
             x = hif4_fake.hif4_fake_quantize_hifx4(x)
+        if self.nvf4_fake_act and not self._skip_nvf4_fake_act(layer):
+            input_global_scale = layer._nvf4_input_global_scale
+            if input_global_scale.device != x.device:
+                raise ValueError(
+                    "NVFP4 activation scale must be on the same device as "
+                    f"the input. Got scale on {input_global_scale.device} "
+                    f"and input on {x.device}."
+                )
+            x = fake_quant_nvfp4_activation(
+                x,
+                input_global_scale,
+                output_dtype=x.dtype,
+            )
         if envs.VLLM_BATCH_INVARIANT and current_platform.is_cuda_alike():
             return linear_batch_invariant(x, layer.weight, bias)
         return dispatch_unquantized_gemm()(layer, x, layer.weight, bias)

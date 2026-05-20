@@ -122,6 +122,7 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 python main.py \
 | `--enforce_eager` | 关闭 CUDAGraph / torch.compile，排错用 |
 | `--cpu_offload_gb` | 每卡向 CPU 卸载多少 GiB 权重 |
 | `--hif4_fake_act` | 打开 vLLM dense linear 输入激活 HiF4 fake quant |
+| `--nvf4_fake_act` | 打开 vLLM dense linear 输入激活 NVFP4 fake quant，要求模型目录有 `nvfp4_activation_scales.safetensors` |
 
 注意任务名：
 

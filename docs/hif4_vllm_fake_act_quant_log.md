@@ -15,7 +15,6 @@
   - 从 `VllmConfig.additional_config` 读取 `hif4_fake_act`。
   - 开启时，在普通 linear GEMM 前对输入 `x` 执行 HiF4 fake quant。
   - 默认跳过 `lm_head`。
-  - 只接受 `hif4_act_qtype=hifx4`，传入其他值时直接报错。
 
 ## 为什么这样修改
 
@@ -33,14 +32,6 @@
 vllm serve /path/to/model \
   --dtype float16 \
   --additional-config '{"hif4_fake_act": true}'
-```
-
-显式指定当前唯一支持的量化类型：
-
-```bash
-vllm serve /path/to/model \
-  --dtype float16 \
-  --additional-config '{"hif4_fake_act": true, "hif4_act_qtype": "hifx4"}'
 ```
 
 关闭：
