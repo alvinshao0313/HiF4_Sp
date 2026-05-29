@@ -7,7 +7,7 @@
 `v0.17.0` 时遇到的主要报错、根因，以及最终采用的适配。目标不是泛泛说明
 “如何安装 vLLM”，而是解释为什么本仓库必须这样装。
 
-## 最终目标
+## 历史目标
 
 | 项 | 目标值 |
 |----|--------|
@@ -26,20 +26,21 @@
 - vLLM 必须从 `3rdparty/vllm` editable 安装，因为后续会改 vLLM 源码。
 - 所有安装命令只作用于 `hif4`，不能影响其他 conda 环境。
 
-## 推荐安装命令
+## 当前安装命令
 
-平时直接执行脚本：
+当前主线只执行脚本：
 
 ```bash
 conda activate hif4
 bash install.sh
 ```
 
-脚本内部等价于以下关键步骤：
+下面是当时 v0.17.0 迁移时的历史关键步骤，只用于理解问题，不是当前 `install.sh` 的等价展开：
 
 ```bash
 conda activate hif4
 
+# 历史记录：当时目标是 v0.17.0。当前主线是 v0.19.1，不要照抄这一行。
 git -C 3rdparty/vllm checkout v0.17.0
 conda install -n hif4 -c nvidia cuda-toolkit=12.8 -y
 
@@ -345,9 +346,9 @@ python main.py \
 - 初始化完成。
 - 至少完成一次 generation。
 
-## 本仓库最终改动摘要
+## 当时改动摘要
 
-- `3rdparty/vllm` submodule 指到 `v0.17.0`。
+- 当时 `3rdparty/vllm` submodule 指到 `v0.17.0`；当前主线已是 `v0.19.1`。
 - `install.sh` 改为：
   - 只允许在 `hif4` 运行。
   - 安装 `cuda-toolkit=12.8` 到 `hif4`。
@@ -357,5 +358,4 @@ python main.py \
   - 设置 conda CUDA 所需的 `CUDA_HOME`、`CUDAToolkit_ROOT`、`PATH`、
     `LD_LIBRARY_PATH`、`NVCC_PREPEND_FLAGS` 和 `CMAKE_ARGS`。
   - 保留 lighteval editable 安装，但不安装 `[vllm]` extras。
-- README 和 `docs/vllm_install_notes.md` 同步更新到 vLLM 0.17.0 / torch 2.10 /
-  CUDA toolkit 12.8 的主线。
+- README 和 `docs/vllm_install_notes.md` 当前以 `v0.19.1` 主线为准；本文只保留 v0.17.0 迁移过程。

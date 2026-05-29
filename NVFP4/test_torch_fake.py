@@ -6,7 +6,6 @@ import torch
 import torch.nn.functional as F
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "3rdparty" / "microxcaling"))
 
 import NVFP4.torch_fake as torch_fake  # noqa: E402
 from NVFP4.torch_fake import (  # noqa: E402
@@ -50,10 +49,10 @@ def ref_nvfp4_activation_qdq(
 
 class Nvfp4TorchFakeTest(unittest.TestCase):
     def setUp(self):
-        torch_fake.USE_MICROXCALING_NVFP4_KERNEL = False
+        torch_fake.USE_TRITON_NVFP4_KERNEL = False
 
     def tearDown(self):
-        torch_fake.USE_MICROXCALING_NVFP4_KERNEL = False
+        torch_fake.USE_TRITON_NVFP4_KERNEL = False
 
     def test_cast_to_fp8_e4m3fn_matches_torch_float8_cast(self):
         values = torch.tensor(
@@ -153,8 +152,8 @@ class Nvfp4TorchFakeTest(unittest.TestCase):
         )
         torch.testing.assert_close(cast_to_fp4_e2m1(values), expected)
 
-    def test_microxcaling_kernel_is_disabled_by_default(self):
-        self.assertFalse(torch_fake.USE_MICROXCALING_NVFP4_KERNEL)
+    def test_triton_kernel_is_disabled_by_default(self):
+        self.assertFalse(torch_fake.USE_TRITON_NVFP4_KERNEL)
 
     def test_fake_quant_nvfp4_activation_matches_reference_random(self):
         torch.manual_seed(123)
@@ -285,14 +284,14 @@ class Nvfp4TorchFakeTest(unittest.TestCase):
         torch.testing.assert_close(actual, expected, rtol=0.0, atol=0.0)
 
     def test_kernel_path_requires_cuda(self):
-        torch_fake.USE_MICROXCALING_NVFP4_KERNEL = True
+        torch_fake.USE_TRITON_NVFP4_KERNEL = True
         x = torch.randn(2, 16, dtype=torch.float32)
         with self.assertRaisesRegex(ValueError, "CUDA"):
             fake_quant_nvfp4_activation(x, torch.tensor([1.0]))
 
-    @unittest.skipUnless(CUDA_AVAILABLE, "CUDA is required for microxcaling kernel test")
+    @unittest.skipUnless(CUDA_AVAILABLE, "CUDA is required for Triton kernel test")
     def test_kernel_path_matches_reference_random(self):
-        torch_fake.USE_MICROXCALING_NVFP4_KERNEL = True
+        torch_fake.USE_TRITON_NVFP4_KERNEL = True
         torch.manual_seed(123)
         x = torch.randn(4, 32, device="cuda", dtype=torch.float32) * 8
         input_global_scale = torch.tensor([1872.0], device="cuda", dtype=torch.float32)
@@ -311,9 +310,9 @@ class Nvfp4TorchFakeTest(unittest.TestCase):
         )
         torch.testing.assert_close(actual, expected, rtol=0.0, atol=0.0)
 
-    @unittest.skipUnless(CUDA_AVAILABLE, "CUDA is required for microxcaling kernel test")
+    @unittest.skipUnless(CUDA_AVAILABLE, "CUDA is required for Triton kernel test")
     def test_kernel_path_zero_global_scale_returns_zero(self):
-        torch_fake.USE_MICROXCALING_NVFP4_KERNEL = True
+        torch_fake.USE_TRITON_NVFP4_KERNEL = True
         x = torch.randn(2, 16, device="cuda", dtype=torch.float32)
         actual = fake_quant_nvfp4_activation(
             x,

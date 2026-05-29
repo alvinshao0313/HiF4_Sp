@@ -24,18 +24,21 @@ from .QFuncs.nvf4 import quant_nvf4
 CUDA_FUNC_BUNDLE_T = Tuple[Optional[Callable], Optional[Callable], Optional[Callable]]
 
 QFUNC_MAP: Tuple[Tuple[str, Callable], ...] = ((r'^int8sym$', quant_int8sym),
-                                               (r'^hifx[0-9]*$', quant_hifx),
+                                               (r'^hifx[0-9]*(_1)?$', quant_hifx),
                                                (r'^nvf4$', quant_nvf4),
                                             )
 
 if lowbit_quant is None:
     CUDA_KERNELS = ()
 else:
+    hifx1_quant = getattr(hifxg_quant, "hifx1_quant", None)
+    hifx1_quant_bf16 = getattr(hifxg_quant, "hifx1_quant_bf16", None)
     CUDA_KERNELS: Tuple[Tuple[str, CUDA_FUNC_BUNDLE_T], ...] = (
                 (r'^mxfp4$', (lowbit_quant.mxfp4_quant, lowbit_quant.mxfp4_quant_bf16, None)),
                 (r'^mxfp6$', (lowbit_quant.mxfp6_quant, lowbit_quant.mxfp6_quant_bf16, None)),
                 (r'^mxfp8e4m3$', (lowbit_quant.mxfp8e4m3_quant, lowbit_quant.mxfp8e4m3_quant_bf16, None)),
                 (r'^nvf4$', (lowbit_quant.nvf4_quant, lowbit_quant.nvf4_quant_bf16, None)),
+                (r'^hifx[0-9]*_1$', (hifx1_quant, hifx1_quant_bf16, None)),
                 (r'^hifx[0-9]*$', (hifxg_quant.hifx_quant, hifxg_quant.hifx_quant_bf16, None)),
             )
 
@@ -88,7 +91,8 @@ def get_cuda_func(x: Tensor, Q: QType) -> Optional[Callable[[Tensor], Tensor]]:
                 idx = 0
                 cvt_fp32 = True 
             f_sel = qfuncs[idx]
-            assert f_sel is not None
+            if f_sel is None:
+                raise RuntimeError(f"CUDA kernel for {Q.desc} is unavailable. Rebuild hif4_gpu.")
             return partial(func_wrapper, func=f_sel, cvt_fp32=cvt_fp32)
     return None 
 
@@ -178,4 +182,3 @@ def quant_slide_window(x: Tensor, Q: QType, force_py: bool=False, force_fp32: bo
     if qdim>0:
         qdim = qdim - len(x.shape)
     return QuantSlideWindow.apply(x, Q, force_py, force_fp32, qdim, win_size)   # type: ignore
-

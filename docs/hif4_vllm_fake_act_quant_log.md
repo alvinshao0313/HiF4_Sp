@@ -12,8 +12,8 @@
 - 在 `hif4_fake_quantize_hifx4()` 中复刻 `HiFloat4/hif4_gpu/quant_cy/base/QFuncs/hifx.py` 的 HiF4 `hifx4` fake quant-dequant 逻辑。
 - 支持 hidden dimension 不是 64 倍数的输入：先在最后一维补零到 64 对齐，量化后再裁回原 shape。
 - 修改 `3rdparty/vllm/vllm/model_executor/layers/linear.py` 的 `UnquantizedLinearMethod`：
-  - 从 `VllmConfig.additional_config` 读取 `hif4_fake_act`。
-  - 开启时，在普通 linear GEMM 前对输入 `x` 执行 HiF4 fake quant。
+  - 从 `VllmConfig.additional_config` 读取统一字段 `fake_act_quant`。
+  - 当取值为 `hif4` 或 `hif4-1` 时，在普通 linear GEMM 前对输入 `x` 执行 HiF4 fake quant。
   - 默认跳过 `lm_head`。
 
 ## 为什么这样修改
@@ -29,23 +29,31 @@
 开启：
 
 ```bash
-vllm serve /path/to/model \
-  --dtype float16 \
-  --additional-config '{"hif4_fake_act": true}'
+CUDA_VISIBLE_DEVICES=0 python main.py \
+  --model_path /path/to/model \
+  --datasets gsm8k \
+  --max_samples 2 \
+  --fake_act_quant hif4
+```
+
+使用 `hif4-1`：
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python main.py \
+  --model_path /path/to/model \
+  --datasets gsm8k \
+  --max_samples 2 \
+  --fake_act_quant hif4-1
 ```
 
 关闭：
 
 ```bash
-vllm serve /path/to/model --dtype float16
-```
-
-或：
-
-```bash
-vllm serve /path/to/model \
-  --dtype float16 \
-  --additional-config '{"hif4_fake_act": false}'
+CUDA_VISIBLE_DEVICES=0 python main.py \
+  --model_path /path/to/model \
+  --datasets gsm8k \
+  --max_samples 2 \
+  --fake_act_quant none
 ```
 
 ## 验证建议
@@ -56,11 +64,11 @@ vllm serve /path/to/model \
 
 1. 直接调用 `hif4_fake_quantize_hifx4()`，确认输出 shape/dtype 不变，非 64 倍数 hidden dim 可正常返回，无 NaN。
 2. 构造普通 vLLM linear，关闭开关时确认输出等于原路径，开启开关时确认 shape/dtype 正常且数值发生扰动。
-3. 用小模型分别关闭/开启 `hif4_fake_act` 做 vLLM 生成冒烟测试。
+3. 用小模型分别关闭/开启 `--fake_act_quant hif4` 或 `--fake_act_quant hif4-1` 做 vLLM 生成冒烟测试。
 
 ## 已知限制
 
-- 首版只支持 `hifx4`。
+- 当前支持 `hif4` 和 `hif4-1` 两种 fake quant 格式。
 - 首版只覆盖普通 dense linear，不覆盖 GPTQ/AWQ/FP8 等量化 linear method。
 - 首版不覆盖 fused MoE expert kernel、KV cache、embedding 和 `lm_head`。
 - 这是 fake quant-dequant 数值路径，不会带来低比特 GEMM 性能收益。

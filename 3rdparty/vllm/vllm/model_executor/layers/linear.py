@@ -204,17 +204,18 @@ class UnquantizedLinearMethod(LinearMethodBase):
             else {}
         ) or {}
 
-        self.hif4_fake_act = bool(additional_config.get("hif4_fake_act", False))
-        self.nvf4_fake_act = bool(additional_config.get("nvf4_fake_act", False))
+        self.fake_act_quant = additional_config.get("fake_act_quant", "none")
+        if self.fake_act_quant not in ("none", "hif4", "nvfp4", "hif4-1"):
+            raise ValueError(f"Unsupported fake_act_quant: {self.fake_act_quant}")
+        self.hif4_fake_act = self.fake_act_quant in ("hif4", "hif4-1")
+        self.nvf4_fake_act = self.fake_act_quant == "nvfp4"
         self.nvf4_activation_scales_path = additional_config.get(
             "nvf4_activation_scales_path"
         )
-        if self.hif4_fake_act and self.nvf4_fake_act:
-            raise ValueError("hif4_fake_act and nvf4_fake_act cannot both be enabled.")
         if self.nvf4_fake_act:
             if not self.nvf4_activation_scales_path:
                 raise ValueError(
-                    "nvf4_fake_act requires nvf4_activation_scales_path."
+                    "fake_act_quant=nvfp4 requires nvf4_activation_scales_path."
                 )
             if not os.path.isfile(self.nvf4_activation_scales_path):
                 raise FileNotFoundError(
@@ -381,7 +382,12 @@ class UnquantizedLinearMethod(LinearMethodBase):
         bias: torch.Tensor | None = None,
     ) -> torch.Tensor:
         if self.hif4_fake_act and not self._skip_fake_act(layer):
-            x = hif4_fake.hif4_fake_quantize_hifx4(x)
+            if self.fake_act_quant == "hif4":
+                x = hif4_fake.hif4_fake_quantize_hifx4(x)
+            elif self.fake_act_quant == "hif4-1":
+                x = hif4_fake.hif4_fake_quantize_hifx4_1(x)
+            else:
+                raise ValueError(f"Unsupported HiF4 fake_act_quant: {self.fake_act_quant}")
         if self.nvf4_fake_act and not self._skip_nvf4_fake_act(layer):
             input_global_scale = layer._nvf4_input_global_scale
             if input_global_scale.device != x.device:

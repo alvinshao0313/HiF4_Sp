@@ -288,6 +288,38 @@ __device__ void hifx_quant_cuda_inner(float* x_shared, float* res_shared, const 
 
 
 template <int N>
+__device__ void hifx1_quant_cuda_inner(float* x_shared, float* res_shared, const int& thread_idx){
+    float vals[64], lv0;
+    for (int i=0; i<64; ++i){
+        vals[i] = x_shared[thread_idx * 64 + i];
+    }
+
+    lv0 = abs(vals[0]);
+    for (int i=1; i<64; ++i){
+        float abs_val = abs(vals[i]);
+        lv0 = (lv0 < abs_val) ? abs_val : lv0;
+    }
+
+    float inv_max_mant = f32_to_bf16(1.0f / 1.75f);
+    lv0 = lv0 * inv_max_mant;
+    lv0 = (lv0 > 49152.0f) ? 49152.0f : lv0;
+    float two_pow_neg48 = std::pow(2.0f, -48.0f);
+    lv0 = (lv0 < two_pow_neg48) ? two_pow_neg48 : lv0;
+    lv0 = f32_to_bf16(lv0);
+    lv0 = f32_to_e6m2(lv0);
+
+    float rec_lv0 = f32_to_bf16(1.0f / lv0);
+    for (int i=0; i<64; ++i){
+        vals[i] = round_mant<N>(vals[i], 1.0f, rec_lv0, lv0);
+    }
+
+    for (int i=0; i<64; ++i){
+        res_shared[thread_idx * 64 + i] = vals[i];
+    }
+}
+
+
+template <int N>
 __global__ void hifx_quant_cuda_kernel(const float* x_ori, float* res_ori, const int n_total){
     constexpr int G=32;
     const int thread_idx = threadIdx.x;
@@ -325,6 +357,40 @@ __global__ void hifx_quant_cuda_kernel(const float* x_ori, float* res_ori, const
 }
 
 
+template <int N>
+__global__ void hifx1_quant_cuda_kernel(const float* x_ori, float* res_ori, const int n_total){
+    constexpr int G=32;
+    const int thread_idx = threadIdx.x;
+    const int block_idx = blockIdx.x;
+    const int block_size = blockDim.x;
+
+    int offset = block_idx *  2 * G * block_size;
+    const float* x_offset = x_ori + offset;
+    float* res_mem = res_ori + offset;
+
+    __shared__ float x_shared[4096];
+    __shared__ float res_shared[4096];
+
+    for (int i=0;i<2*G;++i){
+        if (offset + block_size*i + thread_idx >= n_total){
+            x_shared[block_size*i + thread_idx] = 0;
+        }else{
+            x_shared[block_size*i + thread_idx] = x_offset[block_size*i + thread_idx];
+        }
+    }
+    __syncthreads();
+
+    hifx1_quant_cuda_inner<N>(x_shared, res_shared, thread_idx);
+
+    __syncthreads();
+    for (int i=0;i<2*G;++i){
+        if (offset + block_size*i + thread_idx < n_total){
+            res_mem[block_size*i + thread_idx] = res_shared[block_size*i + thread_idx];
+        }
+    }
+}
+
+
 
 void hifx_quant_cuda(torch::Tensor x, torch::Tensor result, int N){
     int threads = 4096 / 2 / 32;
@@ -343,6 +409,24 @@ void hifx_quant_cuda(torch::Tensor x, torch::Tensor result, int N){
         hifx_quant_cuda_kernel<0><<<blocks, threads>>>(x.data_ptr<float>(), result.data_ptr<float>(), x.numel());
     }
 
+}
+
+void hifx1_quant_cuda(torch::Tensor x, torch::Tensor result, int N){
+    int threads = 4096 / 2 / 32;
+    int blocks = (x.numel() + 4095) / 4096;
+
+    if ((N==2)){
+        hifx1_quant_cuda_kernel<2><<<blocks, threads>>>(x.data_ptr<float>(), result.data_ptr<float>(), x.numel());
+    }
+    if ((N==3)){
+        hifx1_quant_cuda_kernel<3><<<blocks, threads>>>(x.data_ptr<float>(), result.data_ptr<float>(), x.numel());
+    }
+    if ((N==1)){
+        hifx1_quant_cuda_kernel<1><<<blocks, threads>>>(x.data_ptr<float>(), result.data_ptr<float>(), x.numel());
+    }
+    if ((N==0)){
+        hifx1_quant_cuda_kernel<0><<<blocks, threads>>>(x.data_ptr<float>(), result.data_ptr<float>(), x.numel());
+    }
 }
 
 template <int N>
@@ -373,6 +457,33 @@ __global__ void hifx_quant_cuda_bf16_kernel(const bf16* x_ori, bf16* res_ori, co
     }
 }
 
+template <int N>
+__global__ void hifx1_quant_cuda_bf16_kernel(const bf16* x_ori, bf16* res_ori, const int n_total){
+    constexpr int G=32;
+    const int thread_idx = threadIdx.x;
+    const int block_idx = blockIdx.x;
+    const int block_size = blockDim.x;
+
+    int offset = block_idx *  2 * G * block_size;
+    const bf16* x_offset = x_ori + offset;
+    bf16* res_mem = res_ori + offset;
+
+    __shared__ float x_shared[4096];
+    __shared__ float res_shared[4096];
+
+    for (int i=0;i<8;++i){
+        load_to_shared(x_offset, x_shared, offset, i*block_size+thread_idx, n_total);
+    }
+    __syncthreads();
+
+    hifx1_quant_cuda_inner<N>(x_shared, res_shared, thread_idx);
+    __syncthreads();
+
+    for (int i=0;i<8;++i){
+        store_to_shared(res_mem, res_shared, offset, i*block_size+thread_idx, n_total);
+    }
+}
+
 void hifx_quant_cuda_bf16(torch::Tensor x, torch::Tensor result, int N){
     int threads = 4096 / 2 / 32;
     int blocks = (x.numel() + 4095) / 4096;
@@ -390,4 +501,22 @@ void hifx_quant_cuda_bf16(torch::Tensor x, torch::Tensor result, int N){
         hifx_quant_cuda_bf16_kernel<0><<<blocks, threads>>>(x.data_ptr<bf16>(), result.data_ptr<bf16>(), x.numel());
     }
 
+}
+
+void hifx1_quant_cuda_bf16(torch::Tensor x, torch::Tensor result, int N){
+    int threads = 4096 / 2 / 32;
+    int blocks = (x.numel() + 4095) / 4096;
+
+    if ((N==2)){
+        hifx1_quant_cuda_bf16_kernel<2><<<blocks, threads>>>(x.data_ptr<bf16>(), result.data_ptr<bf16>(), x.numel());
+    }
+    if ((N==3)){
+        hifx1_quant_cuda_bf16_kernel<3><<<blocks, threads>>>(x.data_ptr<bf16>(), result.data_ptr<bf16>(), x.numel());
+    }
+    if ((N==1)){
+        hifx1_quant_cuda_bf16_kernel<1><<<blocks, threads>>>(x.data_ptr<bf16>(), result.data_ptr<bf16>(), x.numel());
+    }
+    if ((N==0)){
+        hifx1_quant_cuda_bf16_kernel<0><<<blocks, threads>>>(x.data_ptr<bf16>(), result.data_ptr<bf16>(), x.numel());
+    }
 }

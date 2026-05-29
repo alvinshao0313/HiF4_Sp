@@ -162,6 +162,11 @@ class WeightHiFxQuantizer(nn.Module):
     def _bf16_round(x):
         return x.to(torch.bfloat16).to(torch.float32)
 
+    @staticmethod
+    def _e6m2_round(x):
+        e_sf = torch.floor(torch.log2(x))
+        return torch.round(x * torch.exp2(2 - e_sf)) * torch.exp2(e_sf - 2)
+
     def _quantize_with_scale(self, x, scale):
         x_fp32 = x.float()
         scale = scale.float().clamp(min=2 ** (-48))
@@ -172,7 +177,29 @@ class WeightHiFxQuantizer(nn.Module):
         mant = torch.clamp(mant, max=2 - 2 ** (-self.qparams.man_bits + 1))
         return (sign * mant * scale).to(x.dtype)
 
+    def _extract_hifx4_1_group_scale(self, x):
+        x = x.float()
+        orig_cols = x.shape[-1]
+        block = self.qparams.blk_size * self.qparams.blk_outer_size
+        pad_cols = (block - orig_cols % block) % block
+        if pad_cols > 0:
+            x = torch.nn.functional.pad(x, (0, pad_cols), value=0.0)
+
+        x_group = x.unflatten(-1, (-1, 64))
+        max_abs = torch.max(torch.abs(x_group), dim=-1, keepdim=True)[0]
+        max_mant = 2 - 2 ** (-self.qparams.man_bits + 1)
+        scale_factor = max_abs * self._bf16_round(torch.ones_like(max_abs) / max_mant)
+        scale_factor = self._bf16_round(scale_factor).clip(min=2 ** (-48), max=49152)
+        scale_factor = self._e6m2_round(scale_factor)
+
+        full_scale = scale_factor.expand_as(x_group)
+        full_scale = full_scale.flatten(-2, -1)[..., :orig_cols].contiguous()
+        return full_scale
+
     def _extract_group_scale(self, x):
+        if self.qparams.desc == "hifx4_1":
+            return self._extract_hifx4_1_group_scale(x)
+
         x = x.float()
         orig_cols = x.shape[-1]
         block = self.qparams.blk_size * self.qparams.blk_outer_size
@@ -195,8 +222,7 @@ class WeightHiFxQuantizer(nn.Module):
         mant_sf = scale_factor / torch.exp2(e_sf) * 2 ** 7
         scale_factor = torch.round(mant_sf) / 2 ** 7 * torch.exp2(e_sf)
 
-        e_sf = torch.floor(torch.log2(scale_factor))
-        scale_factor = torch.round(scale_factor * torch.exp2(2 - e_sf)) * torch.exp2(e_sf - 2)
+        scale_factor = self._e6m2_round(scale_factor)
 
         rec_sf = self._bf16_round(1.0 / scale_factor)
         scale_lv2 = torch.exp2(torch.floor((max_lv2 * rec_sf).clip(0, 4) / 4))
@@ -320,6 +346,9 @@ class GPTQ:
 def gptq_fwrd(model, dataloader, dev, args):
     logging.info("----- HiFloat4 GPTQ Quantization -----")
     device = torch.device(dev)
+    weight_qtype = getattr(args, "hif4_weight_qtype", "hifx4")
+    if weight_qtype == "hifx4_1" and getattr(args, "block_size_linear", 64) != 64:
+        raise ValueError("hif4-1 GPTQ requires --block_size_linear 64.")
 
     use_cache = model.config.use_cache
     model.config.use_cache = False
@@ -409,7 +438,7 @@ def gptq_fwrd(model, dataloader, dev, args):
                 if "lm_head" in name:
                     continue
                 gptq_blocks[name] = GPTQ(sub_layer)
-                gptq_blocks[name].quantizer = WeightHiFxQuantizer()
+                gptq_blocks[name].quantizer = WeightHiFxQuantizer(qtype=weight_qtype)
 
             if not gptq_blocks:
                 continue

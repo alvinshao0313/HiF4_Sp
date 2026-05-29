@@ -73,6 +73,7 @@ python HiFloat4/main.py \
   --model "${MODEL}" \
   --dtype "${DTYPE}" \
   --hif4w true \
+  --hif4_weight_format "${HIF4_WEIGHT_FORMAT}" \
   --gptq "${GPTQ}" \
   --gptq_save_path "${OUTPUT}" \
   --gptq_cal_dataset "${GPTQ_CAL_DATASET}" \
@@ -93,6 +94,9 @@ MODEL=/data/models/Qwen3.5-27B bash HiFloat4/quantize_qwen3_5_27b.sh
 
 # 改保存 dtype
 DTYPE=bfloat16 bash HiFloat4/quantize_qwen3_5_27b.sh
+
+# 改 HiF4 权重量化格式
+HIF4_WEIGHT_FORMAT=hif4-1 OUTPUT=/data/Qwen3.5-27B-HiF4-1-RTN bash HiFloat4/quantize_qwen3_5_27b.sh
 
 # 使用 GPTQ 路径
 GPTQ=true \

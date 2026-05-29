@@ -81,7 +81,7 @@ def get_c4(nsamples, seed, seqlen, model, hf_token=None, eval_mode=False):
         while True:
             idx = random.randint(0, len(train_data) - 1)
             encoded = tokenizer(train_data[idx]["text"], return_tensors="pt")
-            if encoded.input_ids.shape[1] >= seqlen:
+            if encoded.input_ids.shape[1] > seqlen:
                 break
         i = random.randint(0, encoded.input_ids.shape[1] - seqlen - 1)
         j = i + seqlen

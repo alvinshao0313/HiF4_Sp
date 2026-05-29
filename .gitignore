@@ -58,14 +58,4 @@ wandb/
 # Local Codex / agent state
 .codex
 .codex/
-
-# microxcaling local build / JIT outputs
-3rdparty/microxcaling/.pytest_cache/
-3rdparty/microxcaling/**/__pycache__/
-3rdparty/microxcaling/**/*.py[cod]
-3rdparty/microxcaling/**/*.so
-3rdparty/microxcaling/**/*.o
-3rdparty/microxcaling/**/*.cuda.o
-3rdparty/microxcaling/**/*.d
-3rdparty/microxcaling/**/*.ninja
-3rdparty/microxcaling/torch_extensions/
+./AGENTS.md

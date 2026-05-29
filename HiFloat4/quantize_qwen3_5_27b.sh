@@ -18,6 +18,7 @@ GPTQ_CAL_NSAMPLES="${GPTQ_CAL_NSAMPLES:-512}"
 GPTQ_CAL_SEQLEN="${GPTQ_CAL_SEQLEN:-512}"
 GPTQ_PERCDAMP="${GPTQ_PERCDAMP:-0.01}"
 BLOCK_SIZE_LINEAR="${BLOCK_SIZE_LINEAR:-64}"
+HIF4_WEIGHT_FORMAT="${HIF4_WEIGHT_FORMAT:-hif4}"
 
 cd "${REPO_ROOT}"
 
@@ -42,6 +43,7 @@ python HiFloat4/main.py \
   --model "${MODEL}" \
   --dtype "${DTYPE}" \
   --hif4w true \
+  --hif4_weight_format "${HIF4_WEIGHT_FORMAT}" \
   --gptq "${GPTQ}" \
   --gptq_save_path "${OUTPUT}" \
   --gptq_cal_dataset "${GPTQ_CAL_DATASET}" \

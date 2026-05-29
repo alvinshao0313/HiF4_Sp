@@ -5,7 +5,7 @@
 - 用本仓库自带的 vLLM + lighteval 跑评测。
 - 用 HiFloat4 对 Qwen3.5 做 RTN / GPTQ fake-quant，并保存 Hugging Face 格式模型。
 
-当前只维护一个 conda 环境：`hif4`。不再需要单独的 `qhif4` / `qwen35` 环境。
+当前只维护一个 conda 环境：`hif4`。不再需要单独的 `qhif4` / `qwen35` 环境，也没有单独的旧安装脚本入口。
 
 ## 关键原则
 
@@ -118,11 +118,18 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 python main.py \
 | `--max_model_len` / `--max_model_length` | vLLM 最大上下文长度 |
 | `--max_new_tokens` | 最大生成长度 |
 | `--max_samples` | 每个任务最多评测样本数，冒烟测试建议设小 |
+| `--batch_size` | 传给 vLLM 的 `max_num_seqs`，不设则使用 lighteval / vLLM 默认值 |
 | `--gpu_memory_utilization` | vLLM 显存利用率 |
 | `--enforce_eager` | 关闭 CUDAGraph / torch.compile，排错用 |
 | `--cpu_offload_gb` | 每卡向 CPU 卸载多少 GiB 权重 |
-| `--hif4_fake_act` | 打开 vLLM dense linear 输入激活 HiF4 fake quant |
-| `--nvf4_fake_act` | 打开 vLLM dense linear 输入激活 NVFP4 fake quant，要求模型目录有 `nvfp4_activation_scales.safetensors` |
+| `--num_experts_per_tok` | 覆盖本地 MoE 模型 `config.json` 里的每 token 激活专家数 |
+| `--load_multilingual_tasks` | 加载 lighteval 多语言任务注册表 |
+| `--fake_act_quant` | dense linear 输入激活 fake quant，可选 `none` / `hif4` / `hif4-1` / `nvfp4`。`nvfp4` 要求本地模型目录有 `nvfp4_activation_scales.safetensors` |
+| `--kv_quant_format` | KV cache fake quant，可选 `none` / `nvfp4` / `hif4` / `hif4-1` |
+| `--kv_quant_chunk_size` | NVFP4 KV fake quant 的 non-sink token chunk 大小，默认 `64`；HiF4 KV 会忽略 |
+| `--kv_quant_sink_size` | 前多少个 token 的 KV cache 保持原精度，默认 `4` |
+| `--kv_quant_target` | KV fake quant 目标，可选 `kv` / `k` / `v` |
+| `--kv_quant_query` | 是否额外量化 RoPE 后、QK 点积前的 Q，可选 `none` / `enabled` |
 
 注意任务名：
 
@@ -154,6 +161,14 @@ GPTQ_CAL_DATASET=c4 \
 GPTQ_CAL_NSAMPLES=512 \
 GPTQ_CAL_SEQLEN=512 \
 OUTPUT=/data/Qwen3.5-27B-HiF4-GPTQ \
+bash HiFloat4/quantize_qwen3_5_27b.sh
+```
+
+切换 HiF4 权重量化格式：
+
+```bash
+HIF4_WEIGHT_FORMAT=hif4-1 \
+OUTPUT=/data/Qwen3.5-27B-HiF4-1-RTN \
 bash HiFloat4/quantize_qwen3_5_27b.sh
 ```
 

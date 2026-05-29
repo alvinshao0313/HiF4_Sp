@@ -14,6 +14,12 @@ from vllm.logger import init_logger
 from vllm.model_executor.layers.attention.kv_transfer_utils import (
     maybe_transfer_kv_layer,
 )
+from vllm.model_executor.layers.attention.kv_fake_quant import (
+    fake_quant_hif4_new_kv,
+    fake_quant_kv_query,
+    get_kv_quant_config,
+    rewrite_quantized_kv,
+)
 from vllm.model_executor.layers.attention_layer_base import AttentionLayerBase
 from vllm.model_executor.layers.linear import (
     UnquantizedLinearMethod,
@@ -218,6 +224,9 @@ class Attention(nn.Module, AttentionLayerBase):
             sliding_window = None
 
         vllm_config = get_current_vllm_config()
+        self.kv_quant_config = get_kv_quant_config(
+            getattr(vllm_config, "additional_config", {}) or {}
+        )
         if cache_config is not None:
             kv_cache_dtype = cache_config.cache_dtype
             calculate_kv_scales = cache_config.calculate_kv_scales
@@ -417,6 +426,22 @@ class Attention(nn.Module, AttentionLayerBase):
         if self.calculate_kv_scales:
             torch.ops.vllm.maybe_calc_kv_scales(query, key, value, self.layer_name)
         output_dtype = query.dtype
+        kv_quant_config = self.kv_quant_config
+        if kv_quant_config is not None:
+            if self.attn_type != AttentionType.DECODER:
+                raise ValueError("KV fake quant only supports decoder attention.")
+            if self.kv_cache_dtype.startswith("fp8"):
+                raise ValueError(
+                    "KV fake quant does not support fp8 kv_cache_dtype."
+                )
+            if self.attn_backend.forward_includes_kv_cache_update:
+                raise ValueError(
+                    "KV fake quant requires split KV cache update."
+                )
+            if getattr(self.impl, "dcp_world_size", 1) > 1:
+                raise ValueError(
+                    "KV fake quant does not support decode context parallelism."
+                )
         if self.query_quant is not None:
             # quantizing with a simple torch operation enables
             # torch.compile to fuse this into previous ops
@@ -448,6 +473,15 @@ class Attention(nn.Module, AttentionLayerBase):
                 key = key.view(-1, self.num_kv_heads, self.head_size)
             if value is not None:
                 value = value.view(-1, self.num_kv_heads, self.head_size_v)
+            if kv_quant_config is not None:
+                attn_metadata = get_forward_context().attn_metadata
+                if isinstance(attn_metadata, dict):
+                    attn_metadata = attn_metadata[self.layer_name]
+                query = fake_quant_kv_query(
+                    query,
+                    attn_metadata,
+                    kv_quant_config,
+                )
             kv_cache_dummy_dep = None
             if self.use_direct_call:
                 # Skip this if sharing KV cache with an earlier attention layer.
@@ -668,11 +702,21 @@ def unified_kv_cache_update(
     Returns a dummy that is passed to unified_attention to signal a side effect and
     the data dependency between them to ensure torch.compile preserves ordering.
     """
-    _, attn_layer, kv_cache, layer_slot_mapping = get_attention_context(layer_name)
+    attn_metadata, attn_layer, kv_cache, layer_slot_mapping = get_attention_context(
+        layer_name
+    )
     if layer_slot_mapping is not None:
         assert hasattr(attn_layer.impl, "do_kv_cache_update"), (
             f"{attn_layer.impl.__class__.__name__} does not support kv cache update"
         )
+        kv_quant_config = getattr(attn_layer, "kv_quant_config", None)
+        if kv_quant_config is not None and kv_quant_config.format in ("hif4", "hif4-1"):
+            key, value = fake_quant_hif4_new_kv(
+                key,
+                value,
+                attn_metadata,
+                kv_quant_config,
+            )
         attn_layer.impl.do_kv_cache_update(
             attn_layer,
             key,
@@ -680,6 +724,18 @@ def unified_kv_cache_update(
             kv_cache,
             layer_slot_mapping,
         )
+        if kv_quant_config is not None and kv_quant_config.format == "nvfp4":
+            if attn_layer.kv_cache_dtype.startswith("fp8"):
+                raise ValueError(
+                    "KV fake quant does not support fp8 kv_cache_dtype."
+                )
+            key_cache, value_cache = kv_cache.unbind(0)
+            rewrite_quantized_kv(
+                key_cache,
+                value_cache,
+                attn_metadata,
+                kv_quant_config,
+            )
 
     return torch.empty(0, device=kv_cache.device, dtype=kv_cache.dtype)
 

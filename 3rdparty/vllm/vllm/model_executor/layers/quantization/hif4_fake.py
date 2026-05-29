@@ -46,3 +46,38 @@ def hif4_fake_quantize_hifx4(x: torch.Tensor) -> torch.Tensor:  # [hif4 quant]
     if pad_cols > 0:  # [hif4 quant]
         out = out[..., :orig_cols]  # [hif4 quant]
     return out.to(orig_dtype)  # [hif4 quant]
+
+
+def hif4_fake_quantize_hifx4_1(x: torch.Tensor) -> torch.Tensor:
+    """Apply hif4-1 fake quant-dequant along the last dimension."""
+    orig_dtype = x.dtype
+    orig_cols = x.shape[-1]
+    pad_cols = (64 - orig_cols % 64) % 64
+    work = x if x.is_contiguous() else x.contiguous()
+    if pad_cols > 0:
+        work = F.pad(work, (0, pad_cols), value=0.0)
+
+    work_fp32 = work.float()
+    grouped = work_fp32.unflatten(-1, (-1, 64))
+    unsigned = torch.abs(grouped)
+    sign = torch.sign(grouped)
+    max_abs = torch.max(unsigned, dim=-1, keepdim=True)[0]
+
+    div = (torch.ones_like(max_abs) / 1.75).to(torch.bfloat16).float()
+    scale_factor = (max_abs * div).to(torch.bfloat16).float()
+    scale_factor = scale_factor.clamp(min=2 ** (-48), max=49152)
+    exp_sf = torch.floor(torch.log2(scale_factor))
+    scale_factor = (
+        torch.round(scale_factor * torch.exp2(2 - exp_sf))
+        * torch.exp2(exp_sf - 2)
+    )
+
+    rec_sf = (1.0 / scale_factor).to(torch.bfloat16).float()
+    mant = unsigned * rec_sf
+    mant = torch.floor(mant * 2**2 + 0.5) / 2**2
+    mant = torch.clamp(mant, max=1.75)
+    out = sign * mant * scale_factor
+    out = out.flatten(-2, -1)
+    if pad_cols > 0:
+        out = out[..., :orig_cols]
+    return out.to(orig_dtype)

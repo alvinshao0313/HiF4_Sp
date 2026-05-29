@@ -7,6 +7,9 @@ from torch import Tensor
 def quant_hifx(x: Tensor, Q: QType, qdim: int): 
     # print('HIFxV14')
     # ---- This code is modified from quant_py ----
+    if Q.desc == "hifx4_1":
+        return quant_hifx4_1(x, Q, qdim)
+
     # reshape x 
     x = x.unflatten(qdim, (-1, 8, 2, 4))
     x_unsigned = torch.abs(x)
@@ -47,3 +50,35 @@ def quant_hifx(x: Tensor, Q: QType, qdim: int):
     out = out.flatten(qdim-3, qdim)
     return out 
 
+
+@torch.no_grad()
+def quant_hifx4_1(x: Tensor, Q: QType, qdim: int):
+    x = x.unflatten(qdim, (-1, 64))
+    x_unsigned = torch.abs(x)
+    sign = torch.sign(x)
+
+    assert Q.exp_bits == 0
+    max_abs = torch.max(x_unsigned, dim=qdim, keepdim=True)[0]
+
+    div = torch.ones_like(max_abs) / (2 - 2 ** (-Q.man_bits + 1))
+    div = div.to(torch.bfloat16).to(x.dtype)
+    scale_factor = max_abs * div
+    scale_factor = scale_factor.to(torch.bfloat16).to(x.dtype).clip(
+        min=2 ** (-48), max=49152
+    )
+
+    e_sf = torch.floor(torch.log2(scale_factor))
+    scale_factor = torch.round(scale_factor * torch.exp2(2 - e_sf)) * torch.exp2(
+        e_sf - 2
+    )
+
+    rec_sf = (1.0 / scale_factor).to(torch.bfloat16).to(x.dtype)
+    mant = x_unsigned * rec_sf
+    mant = torch.floor(mant * 2 ** (Q.man_bits - 1) + 0.5) / 2 ** (
+        Q.man_bits - 1
+    )
+    mant = torch.clamp(mant, max=2 - 2 ** (-Q.man_bits + 1))
+
+    out = sign * mant * scale_factor
+    out = out.flatten(qdim - 1, qdim)
+    return out

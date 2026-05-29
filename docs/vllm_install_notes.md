@@ -335,23 +335,19 @@ nm -D ~/anaconda3/envs/expertpruning/lib/python3.11/site-packages/torch/lib/libc
 
 ---
 
-## 两个 install 脚本的分工
+## 当前安装入口
 
-基于上面的讨论，本仓库当前只把 `install.sh` 作为主线安装入口。
-`install_qwen35.sh` 是旧 baseline 路径，保留用于历史复现。
+基于上面的讨论，本仓库当前只保留 `install.sh` 作为安装入口。旧的 `install_qwen35.sh`
+已经不在当前工作区内，不要在新环境里查找或使用它。
 
 | 脚本 | conda env | vLLM 来源 | 对应上面的方案 | 何时选 |
 |------|-----------|-----------|----------------|--------|
 | `install.sh` | `hif4` | `3rdparty/vllm` 内置源码目录 (`v0.19.1`) + `pip install --editable . --no-build-isolation` 源码编译。torch 固定到 `2.10.0`，Transformers 固定到 `5.6.2`，CUDA toolkit 默认用 conda `12.8`。 | **方案 A**：editable source build | 当前主线。Qwen3.5 / HiF4 适配已在内置源码目录内，用户不需要再手工改 vLLM；ABI 靠当前环境 torch 源码编译保证。|
-| `install_qwen35.sh`        | `qwen35`        | 旧 PyPI wheel 路径。 | 历史 baseline | 只用于复现旧环境，不作为当前主线。|
 
-`install.sh` 会从 `3rdparty/lighteval`（本仓库 fork，
-`expert-pruning-mods` 分支）editable 安装 lighteval，本仓库打的
-`[ExpertPruning-mod]` 补丁会在 `hif4` 生效。
+`install.sh` 会从 `3rdparty/lighteval` 内置源码目录 editable 安装 lighteval，本仓库打的本地补丁会在 `hif4` 生效。
 
 **为什么仍然源码编译？**
 
 - `hif4` 不能用 `VLLM_USE_PRECOMPILED=1`：editable 会拉 `wheels.vllm.ai` 的 rolling
   dev wheel，就是本文开头那个 ABI 不匹配的元凶。主线必须源码编译。
-- `install_qwen35.sh` 不能替代 `install.sh`：它是旧 wheel 路径，
-  不是 editable，不能用于修改 vLLM 源码。
+- 当前没有第二个安装脚本可以替代 `install.sh`。

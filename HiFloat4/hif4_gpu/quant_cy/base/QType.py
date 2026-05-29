@@ -50,12 +50,17 @@ class QType():
             elif desc.lower()=='mxfp8e5m2':
                 desc = 'e5m2k8b32c'
             elif desc.lower()[:4]=='hifx':
-                res = re.match(r'^hifx([2345])$', desc.lower())
+                res = re.match(r'^hifx([2345])(_1)?$', desc.lower())
                 if res is None:
                     raise ValueError('HiFx only supports hifx*')
+                elif res.group(2) is not None and res.group(1) != '4':
+                    raise ValueError('HiFx-1 only supports hifx4_1')
                 else:
                     n_bit_tmp = int(res.group(1)) - 1
-                    desc = 'e0m%dK1k4B1b%dCoff38'%(n_bit_tmp, 64)
+                    if res.group(2) is not None:
+                        desc = 'e0m%dk1b%dC'%(n_bit_tmp, 64)
+                    else:
+                        desc = 'e0m%dK1k4B1b%dCoff38'%(n_bit_tmp, 64)
 
             # start to parse 
             res = re.match(r'^e([0-9]+)m([0-9]+)k([0-9]+)b([0-9]+)([Cc]?)$', desc)

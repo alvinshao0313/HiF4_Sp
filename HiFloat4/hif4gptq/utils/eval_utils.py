@@ -21,6 +21,7 @@ TASK_METRIC_MAP = {
     "piqa": "acc_norm,none",
     "winogrande": "acc,none",
     "boolq": "acc,none",
+    "rte": "acc,none",
     "openbookqa": "acc_norm,none",
     "lambada": "acc,none",
     "lambada_openai": "acc,none",

@@ -307,22 +307,50 @@ def parse_args():
              "注意：会显著降低推理速度。依赖本仓库对 lighteval 的本地修改（VLLMModelConfig.cpu_offload_gb 字段）。",
     )
     parser.add_argument(
-        "--hif4_fake_act",
-        action="store_true",
-        help="开启 vLLM 普通 dense linear 输入激活的 HiF4 hifx4 fake quant-dequant。依赖本仓库 vLLM 本地补丁。",
+        "--fake_act_quant",
+        choices=["none", "hif4", "nvfp4", "hif4-1"],
+        default="none",
+        help="vLLM 普通 dense linear 输入激活 fake quant 格式。默认 none。",
     )
     parser.add_argument(
-        "--nvf4_fake_act",
-        action="store_true",
-        help="开启 vLLM 普通 dense linear 输入激活的 NVFP4 fake quant-dequant。依赖 model_path 下的 nvfp4_activation_scales.safetensors。",
+        "--kv_quant_format",
+        choices=["none", "nvfp4", "hif4", "hif4-1"],
+        default="none",
+        help="KV cache 伪量化格式。默认: none",
+    )
+    parser.add_argument(
+        "--kv_quant_chunk_size",
+        type=int,
+        default=64,
+        help="NVFP4 KV 伪量化的 non-sink token chunk 大小；hif4 会忽略该参数。默认: 64",
+    )
+    parser.add_argument(
+        "--kv_quant_sink_size",
+        type=int,
+        default=4,
+        help="前多少个 token 的 KV cache 保持原精度。默认: 4",
+    )
+    parser.add_argument(
+        "--kv_quant_target",
+        choices=["kv", "k", "v"],
+        default="kv",
+        help="KV 伪量化目标。默认: kv",
+    )
+    parser.add_argument(
+        "--kv_quant_query",
+        choices=["none", "enabled"],
+        default="none",
+        help="是否额外量化 Q。默认 none；enabled 时在 RoPE 后、QK 点积前按 kv_quant_format 做 Q 伪量化。",
     )
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
-    if args.hif4_fake_act and args.nvf4_fake_act:
-        raise ValueError("--hif4_fake_act 和 --nvf4_fake_act 不能同时开启")
+    if args.kv_quant_format == "nvfp4" and args.kv_quant_chunk_size < 1:
+        raise ValueError("--kv_quant_chunk_size 须为正整数")
+    if args.kv_quant_sink_size < 0:
+        raise ValueError("--kv_quant_sink_size 须为非负整数")
 
     # 若指定 num_experts_per_tok，为本地 MoE 模型准备覆盖目录并替换 model_path
     if args.num_experts_per_tok is not None:
@@ -332,17 +360,17 @@ def main():
         print(f"MoE 已覆盖 num_experts_per_tok={args.num_experts_per_tok}，使用目录: {args.model_path}")
 
     nvf4_activation_scales_path = None
-    if args.nvf4_fake_act:
+    if args.fake_act_quant == "nvfp4":
         model_path = os.path.abspath(args.model_path)
         if not os.path.isdir(model_path):
-            raise ValueError(f"--nvf4_fake_act 只支持本地 model_path 目录: {args.model_path}")
+            raise ValueError(f"--fake_act_quant nvfp4 只支持本地 model_path 目录: {args.model_path}")
         nvf4_activation_scales_path = os.path.join(
             model_path,
             "nvfp4_activation_scales.safetensors",
         )
         if not os.path.isfile(nvf4_activation_scales_path):
             raise FileNotFoundError(
-                "--nvf4_fake_act 需要转换时保存的 activation scale 文件: "
+                "--fake_act_quant nvfp4 需要转换时保存的 activation scale 文件: "
                 f"{nvf4_activation_scales_path}"
             )
 
@@ -383,6 +411,7 @@ def main():
         kwargs["custom_tasks_directory"] = os.path.abspath(custom_tasks_path)
     pipeline_params = PipelineParameters(**kwargs)
 
+    kv_quant_enabled = args.kv_quant_format != "none"
     vllm_model_kwargs = dict(
         model_name=args.model_path,
         trust_remote_code=True,
@@ -399,15 +428,27 @@ def main():
             max_new_tokens=args.max_new_tokens,
         ),
     )
-    if args.hif4_fake_act:
-        vllm_model_kwargs["additional_config"] = {
-            "hif4_fake_act": True,
-        }
-    if args.nvf4_fake_act:
-        vllm_model_kwargs["additional_config"] = {
-            "nvf4_fake_act": True,
-            "nvf4_activation_scales_path": nvf4_activation_scales_path,
-        }
+    additional_config = {}
+    if args.fake_act_quant != "none":
+        additional_config["fake_act_quant"] = args.fake_act_quant
+    if args.fake_act_quant == "nvfp4":
+        additional_config.update(
+            {
+                "nvf4_activation_scales_path": nvf4_activation_scales_path,
+            }
+        )
+    if kv_quant_enabled:
+        additional_config.update(
+            {
+                "kv_quant_format": args.kv_quant_format,
+                "kv_quant_chunk_size": args.kv_quant_chunk_size,
+                "kv_quant_sink_size": args.kv_quant_sink_size,
+                "kv_quant_target": args.kv_quant_target,
+                "kv_quant_query": args.kv_quant_query,
+            }
+        )
+    if additional_config:
+        vllm_model_kwargs["additional_config"] = additional_config
     if args.batch_size is not None:
         if args.batch_size < 1:
             raise ValueError("--batch_size 须为正整数")

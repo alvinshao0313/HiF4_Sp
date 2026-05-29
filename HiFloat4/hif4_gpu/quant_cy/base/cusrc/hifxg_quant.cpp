@@ -10,6 +10,8 @@
 
 void hifx_quant_cuda(const torch::Tensor x, torch::Tensor result, int N);
 void hifx_quant_cuda_bf16(const torch::Tensor x, torch::Tensor result, int N);
+void hifx1_quant_cuda(const torch::Tensor x, torch::Tensor result, int N);
+void hifx1_quant_cuda_bf16(const torch::Tensor x, torch::Tensor result, int N);
 
 void hifx_quant(const torch::Tensor x, torch::Tensor result, int N){
     CHECK_INPUT(x);
@@ -25,9 +27,24 @@ void hifx_quant_bf16(const torch::Tensor x, torch::Tensor result, int N){
     hifx_quant_cuda_bf16(x, result, N);
 }
 
+void hifx1_quant(const torch::Tensor x, torch::Tensor result, int N){
+    CHECK_INPUT(x);
+    CHECK_INPUT(result);
+    const at::cuda::OptionalCUDAGuard device_guard(device_of(x));
+    hifx1_quant_cuda(x, result, N);
+}
+
+void hifx1_quant_bf16(const torch::Tensor x, torch::Tensor result, int N){
+    CHECK_INPUT(x);
+    CHECK_INPUT(result);
+    const at::cuda::OptionalCUDAGuard device_guard(device_of(x));
+    hifx1_quant_cuda_bf16(x, result, N);
+}
+
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m){
     m.def("hifx_quant", &hifx_quant, "hifx_quant", py::arg("x"), py::arg("result"), py::arg("N"));
     m.def("hifx_quant_bf16", &hifx_quant_bf16, "hifx_quant_bf16", py::arg("x"), py::arg("result"), py::arg("N"));
+    m.def("hifx1_quant", &hifx1_quant, "hifx1_quant", py::arg("x"), py::arg("result"), py::arg("N"));
+    m.def("hifx1_quant_bf16", &hifx1_quant_bf16, "hifx1_quant_bf16", py::arg("x"), py::arg("result"), py::arg("N"));
 }
-

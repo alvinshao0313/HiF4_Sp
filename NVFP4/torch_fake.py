@@ -5,15 +5,15 @@ from __future__ import annotations
 import torch
 import torch.nn.functional as F
 
+from NVFP4.triton_fake import fake_quant_nvfp4_activation_triton
+
 
 FP4_E2M1_MAX = 6.0
 FP8_E4M3FN_MAX = 448.0
 FP8_E4M3FN_MIN_EXP = -6
 FP8_E4M3FN_MAX_EXP = 8
 FP8_E4M3FN_MANTISSA_BITS = 3
-USE_MICROXCALING_NVFP4_KERNEL = True
-
-_MICROXCALING_QUANTIZE_MX_BY_TILE = None
+USE_TRITON_NVFP4_KERNEL = True
 
 
 def cast_to_fp4_e2m1(x: torch.Tensor) -> torch.Tensor:
@@ -49,61 +49,6 @@ def cast_to_fp8_e4m3fn(x: torch.Tensor) -> torch.Tensor:
     rounded = torch.round(abs_x / step) * step
     rounded = torch.clamp(rounded, max=FP8_E4M3FN_MAX)
     return (rounded * sign.to(torch.float32)).to(x.dtype)
-
-
-def _load_microxcaling_quantize_mx_by_tile():
-    global _MICROXCALING_QUANTIZE_MX_BY_TILE
-    if _MICROXCALING_QUANTIZE_MX_BY_TILE is None:
-        from mx import custom_extensions as ce
-
-        _MICROXCALING_QUANTIZE_MX_BY_TILE = ce.funcs.quantize_mx_by_tile_func_cuda
-    return _MICROXCALING_QUANTIZE_MX_BY_TILE
-
-
-@torch.library.custom_op("nvfp4::quantize_mx_by_tile", mutates_args=())
-def _quantize_mx_by_tile_custom_op(
-    x: torch.Tensor,
-    scale_bits: int,
-    elem_ebits: int,
-    elem_mbits: int,
-    elem_max_norm: float,
-    tile_size: int,
-    axis: int,
-    flush_fp32_subnorms: bool,
-    rmode: int,
-    scale_mode: int,
-    asym: int,
-) -> torch.Tensor:
-    return _load_microxcaling_quantize_mx_by_tile()(
-        x,
-        scale_bits,
-        elem_ebits,
-        elem_mbits,
-        elem_max_norm,
-        tile_size,
-        axis,
-        flush_fp32_subnorms,
-        rmode,
-        scale_mode,
-        asym,
-    )
-
-
-@_quantize_mx_by_tile_custom_op.register_fake
-def _(
-    x: torch.Tensor,
-    scale_bits: int,
-    elem_ebits: int,
-    elem_mbits: int,
-    elem_max_norm: float,
-    tile_size: int,
-    axis: int,
-    flush_fp32_subnorms: bool,
-    rmode: int,
-    scale_mode: int,
-    asym: int,
-) -> torch.Tensor:
-    return torch.empty_like(x)
 
 
 def _fake_quant_nvfp4_activation_torch(
@@ -148,29 +93,12 @@ def _fake_quant_nvfp4_activation_kernel(
     if not x.is_cuda:
         raise ValueError("fake_quant_nvfp4_activation kernel path requires a CUDA input tensor")
 
-    scale_is_zero = global_scale == 0
-    safe_global_scale = torch.where(
-        scale_is_zero,
-        torch.ones_like(global_scale),
+    return fake_quant_nvfp4_activation_triton(
+        x,
         global_scale,
+        group_size=group_size,
+        output_dtype=output_dtype,
     )
-    x_scaled = (x.to(torch.float32) * safe_global_scale).contiguous()
-    x_qdq = _quantize_mx_by_tile_custom_op(
-        x_scaled,
-        8,
-        2,
-        3,
-        6.0,
-        group_size,
-        x_scaled.dim() - 1,
-        False,
-        0,
-        143,
-        -1,
-    )
-    x_dequant = x_qdq / safe_global_scale
-    x_dequant = torch.where(scale_is_zero, torch.zeros_like(x_dequant), x_dequant)
-    return x_dequant.to(output_dtype)
 
 
 def fake_quant_nvfp4_activation(
@@ -194,7 +122,7 @@ def fake_quant_nvfp4_activation(
 
     global_scale = input_global_scale.reshape(()).to(device=x.device, dtype=torch.float32)
 
-    if USE_MICROXCALING_NVFP4_KERNEL:
+    if USE_TRITON_NVFP4_KERNEL:
         return _fake_quant_nvfp4_activation_kernel(
             x,
             global_scale,

@@ -167,9 +167,19 @@ def _is_excluded_layer(name: str, exclude_layers: list[str]) -> bool:
     return name in exclude_layers
 
 
+def _hif4_weight_qtype(weight_format: str) -> str:
+    mapping = {
+        "hif4": "hifx4",
+        "hif4-1": "hifx4_1",
+    }
+    if weight_format not in mapping:
+        raise ValueError(f"Unsupported hif4 weight format: {weight_format}")
+    return mapping[weight_format]
+
+
 @torch.no_grad()
 def hif4_rtn_quant(model: nn.Module, args: argparse.Namespace) -> nn.Module:
-    qparams = QType("hifx4").dim(-1)
+    qparams = QType(args.hif4_weight_qtype).dim(-1)
     quant_device = _quant_device()
     if quant_device.type != "cuda":
         raise RuntimeError("HiF4 RTN quantization requires CUDA because quant_dequant_float uses a CUDA kernel.")
@@ -287,6 +297,13 @@ def arg_parser(interactive: bool = True) -> argparse.Namespace:
     parser.add_argument("--test_zero_task", action="store_true")
 
     parser.add_argument("--hif4w", type=str2bool, default=False, help="Enable one-shot HiF4 weight fake quantization")
+    parser.add_argument(
+        "--hif4_weight_format",
+        type=str,
+        default="hif4",
+        choices=["hif4", "hif4-1"],
+        help="HiF4 weight fake quant format for RTN/GPTQ.",
+    )
     parser.add_argument("--hif4a", type=str2bool, default=False, help="Enable HiF4 input activation fake quantization")
     parser.add_argument("--exclude-layers", nargs="*", default=["lm_head"], help="Exact layer names to skip")
     parser.add_argument("--disable-fast-forward", action="store_true", help="Disable QLinear2 fast-forward path")
@@ -315,6 +332,9 @@ def run_main(args: argparse.Namespace, logger: logging.Logger) -> None:
 
     logger.info("Running with args: %s", vars(args))
     set_seed(args.seed)
+    args.hif4_weight_qtype = _hif4_weight_qtype(args.hif4_weight_format)
+    if args.hif4_weight_qtype == "hifx4_1" and args.gptq and args.block_size_linear != 64:
+        raise ValueError("hif4-1 GPTQ requires --block_size_linear 64.")
 
     dtype = _torch_dtype_from_arg(args.dtype)
     load_device_map = "cpu"
