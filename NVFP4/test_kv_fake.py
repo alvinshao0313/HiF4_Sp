@@ -13,6 +13,7 @@ from vllm.model_executor.layers.attention.kv_fake_quant import (  # noqa: E402
     fake_quant_hif4_tensor,
     fake_quant_hif4_new_kv,
     fake_quant_kv_tensor,
+    fake_quant_mxfp8_tensor,
     fake_quant_nvfp4_query,
     fake_quant_nvfp4_per_head_chunk,
     get_kv_quant_config,
@@ -225,6 +226,127 @@ def test_hif4_quantizes_new_non_sink_tokens_immediately():
     )
 
 
+@pytest.mark.parametrize("quant_format", ["hif4", "hif4-1"])
+def test_hif4_protects_recent_tokens_during_prefill(quant_format: str):
+    config = Nvfp4KVQuantConfig(
+        chunk_size=64,
+        sink_size=2,
+        target="kv",
+        format=quant_format,
+        recent_size=3,
+    )
+    key = torch.randn(8, 2, 16, dtype=torch.float32) * 7
+    value = torch.randn(8, 2, 16, dtype=torch.float32) * 7
+    key_before = key.clone()
+    value_before = value.clone()
+
+    key, value = fake_quant_hif4_new_kv(key, value, make_metadata(0, 8), config)
+
+    torch.testing.assert_close(key[:2], key_before[:2])
+    torch.testing.assert_close(value[:2], value_before[:2])
+    torch.testing.assert_close(key[2:5], fake_quant_kv_tensor(key_before[2:5], config))
+    torch.testing.assert_close(
+        value[2:5], fake_quant_kv_tensor(value_before[2:5], config)
+    )
+    torch.testing.assert_close(key[5:], key_before[5:])
+    torch.testing.assert_close(value[5:], value_before[5:])
+
+
+def test_hif4_sink_and_recent_windows_can_overlap():
+    config = Nvfp4KVQuantConfig(
+        chunk_size=64,
+        sink_size=4,
+        target="kv",
+        format="hif4",
+        recent_size=5,
+    )
+    key = torch.randn(8, 2, 16, dtype=torch.float32) * 7
+    value = torch.randn(8, 2, 16, dtype=torch.float32) * 7
+    key_before = key.clone()
+    value_before = value.clone()
+
+    key, value = fake_quant_hif4_new_kv(key, value, make_metadata(0, 8), config)
+
+    torch.testing.assert_close(key, key_before)
+    torch.testing.assert_close(value, value_before)
+
+
+def test_hif4_recent_protection_handles_multiple_requests_and_padding():
+    config = Nvfp4KVQuantConfig(
+        chunk_size=64,
+        sink_size=1,
+        target="kv",
+        format="hif4",
+        recent_size=2,
+    )
+    metadata = Metadata(
+        query_start_loc=torch.tensor([0, 3, 5], dtype=torch.long),
+        seq_lens=torch.tensor([6, 3], dtype=torch.long),
+        block_table=torch.empty(0, dtype=torch.long),
+    )
+    metadata.num_actual_tokens = 5
+    key = torch.randn(7, 2, 16, dtype=torch.float32) * 7
+    value = torch.randn(7, 2, 16, dtype=torch.float32) * 7
+    key_before = key.clone()
+    value_before = value.clone()
+
+    key, value = fake_quant_hif4_new_kv(key, value, metadata, config)
+
+    torch.testing.assert_close(key[:1], fake_quant_kv_tensor(key_before[:1], config))
+    torch.testing.assert_close(
+        value[:1], fake_quant_kv_tensor(value_before[:1], config)
+    )
+    torch.testing.assert_close(key[1:], key_before[1:])
+    torch.testing.assert_close(value[1:], value_before[1:])
+
+
+def test_hif4_decode_quantizes_token_leaving_recent_window():
+    config = Nvfp4KVQuantConfig(
+        chunk_size=64,
+        sink_size=2,
+        target="kv",
+        format="hif4",
+        recent_size=3,
+    )
+    key, value = make_cache(seq_len=7)
+    key_before = key.clone()
+    value_before = value.clone()
+
+    rewrite_completed_kv_chunks(key, value, make_metadata(6, 1), config)
+
+    torch.testing.assert_close(flat(key)[:3], flat(key_before)[:3])
+    torch.testing.assert_close(flat(value)[:3], flat(value_before)[:3])
+    torch.testing.assert_close(
+        flat(key)[3:4], fake_quant_kv_tensor(flat(key_before)[3:4], config)
+    )
+    torch.testing.assert_close(
+        flat(value)[3:4], fake_quant_kv_tensor(flat(value_before)[3:4], config)
+    )
+    torch.testing.assert_close(flat(key)[4:7], flat(key_before)[4:7])
+    torch.testing.assert_close(flat(value)[4:7], flat(value_before)[4:7])
+
+
+@pytest.mark.parametrize(("target", "unchanged"), [("k", "value"), ("v", "key")])
+def test_hif4_recent_rewrite_respects_target(target: str, unchanged: str):
+    config = Nvfp4KVQuantConfig(
+        chunk_size=64,
+        sink_size=2,
+        target=target,
+        format="hif4",
+        recent_size=3,
+    )
+    key, value = make_cache(seq_len=7)
+    key_before = key.clone()
+    value_before = value.clone()
+
+    rewrite_completed_kv_chunks(key, value, make_metadata(6, 1), config)
+
+    if unchanged == "key":
+        torch.testing.assert_close(key, key_before)
+    else:
+        torch.testing.assert_close(value, value_before)
+
+
 def test_hif4_ignores_padded_tokens():
     config = Nvfp4KVQuantConfig(
         chunk_size=64,
@@ -329,12 +451,14 @@ def test_hif4_triton_matches_reference_cuda():
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required")
-def test_hif4_new_kv_triton_matches_reference_cuda():
+@pytest.mark.parametrize("quant_format", ["hif4", "hif4-1"])
+def test_hif4_new_kv_triton_matches_reference_cuda(quant_format: str):
     config = Nvfp4KVQuantConfig(
         chunk_size=64,
         sink_size=2,
         target="kv",
-        format="hif4",
+        format=quant_format,
+        recent_size=2,
     )
     torch.manual_seed(456)
     key_cpu = torch.randn(5, 2, 80, dtype=torch.float32) * 7
@@ -369,6 +493,40 @@ def test_hif4_new_kv_triton_matches_reference_cuda():
     torch.testing.assert_close(actual_value.cpu(), expected_value, rtol=1e-3, atol=1e-3)
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required")
+@pytest.mark.parametrize("quant_format", ["hif4", "hif4-1"])
+def test_hif4_recent_rewrite_triton_matches_reference_cuda(quant_format: str):
+    config = Nvfp4KVQuantConfig(
+        chunk_size=64,
+        sink_size=2,
+        target="kv",
+        format=quant_format,
+        recent_size=2,
+    )
+    torch.manual_seed(789)
+    key_cpu = torch.randn(4, 4, 2, 16, dtype=torch.float32) * 7
+    value_cpu = torch.randn(4, 4, 2, 16, dtype=torch.float32) * 7
+    key_cuda = key_cpu.cuda()
+    value_cuda = value_cpu.cuda()
+    metadata_cpu = Metadata(
+        query_start_loc=torch.tensor([0, 1, 3], dtype=torch.long),
+        seq_lens=torch.tensor([7, 5], dtype=torch.long),
+        block_table=torch.tensor([[0, 1], [2, 3]], dtype=torch.long),
+    )
+    metadata_cuda = Metadata(
+        query_start_loc=metadata_cpu.query_start_loc.cuda(),
+        seq_lens=metadata_cpu.seq_lens.cuda(),
+        block_table=metadata_cpu.block_table.cuda(),
+    )
+    metadata_cuda.max_query_len = 2
+
+    rewrite_completed_kv_chunks(key_cpu, value_cpu, metadata_cpu, config)
+    rewrite_completed_kv_chunks(key_cuda, value_cuda, metadata_cuda, config)
+
+    torch.testing.assert_close(key_cuda.cpu(), key_cpu, rtol=1e-3, atol=1e-3)
+    torch.testing.assert_close(value_cuda.cpu(), value_cpu, rtol=1e-3, atol=1e-3)
+
+
 def test_query_quant_is_disabled_by_default():
     config = Nvfp4KVQuantConfig(chunk_size=4, sink_size=0, target="kv")
     query = torch.randn(4, 2, 16, dtype=torch.float32) * 7
@@ -383,7 +541,7 @@ def test_query_quant_enabled_changes_query():
         chunk_size=4,
         sink_size=0,
         target="kv",
-        quant_query=True,
+        query_format="kv",
     )
     query = torch.randn(4, 2, 16, dtype=torch.float32) * 7
 
@@ -401,4 +559,123 @@ def test_get_kv_quant_config_parses_query_flag():
     )
 
     assert config is not None
-    assert config.quant_query
+    assert config.query_format == "kv"
+
+
+def test_get_kv_quant_config_parses_mxfp8_query():
+    config = get_kv_quant_config(
+        {
+            "kv_quant_format": "hif4-1",
+            "kv_quant_query": "mxfp8",
+        }
+    )
+
+    assert config is not None
+    assert config.query_format == "mxfp8"
+
+
+@pytest.mark.parametrize("query_format", ["enabled", "mxfp8"])
+def test_get_kv_quant_config_rejects_query_quant_without_kv(query_format: str):
+    with pytest.raises(ValueError, match="requires KV quantization"):
+        get_kv_quant_config(
+            {
+                "kv_quant_format": "none",
+                "kv_quant_query": query_format,
+            }
+        )
+
+
+@pytest.mark.parametrize("quant_format", ["hif4", "hif4-1"])
+def test_query_quant_enabled_follows_hif4_format(quant_format: str):
+    config = Nvfp4KVQuantConfig(
+        chunk_size=64,
+        sink_size=16,
+        target="kv",
+        format=quant_format,
+        recent_size=128,
+        query_format="kv",
+    )
+    query = torch.randn(4, 2, 64, dtype=torch.float32) * 7
+
+    actual = fake_quant_nvfp4_query(query, make_metadata(0, 4), config)
+
+    torch.testing.assert_close(actual, fake_quant_hif4_tensor(query, quant_format))
+
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+def test_mxfp8_query_preserves_shape_dtype_and_quantizes_per_block(dtype: torch.dtype):
+    torch.manual_seed(2468)
+    query = torch.randn(3, 2, 64, dtype=dtype) * 7
+    query[..., :32] *= 128
+
+    actual = fake_quant_mxfp8_tensor(query)
+    first_block = fake_quant_mxfp8_tensor(query[..., :32])
+    second_block = fake_quant_mxfp8_tensor(query[..., 32:])
+
+    assert actual.shape == query.shape
+    assert actual.dtype == query.dtype
+    torch.testing.assert_close(actual[..., :32], first_block)
+    torch.testing.assert_close(actual[..., 32:], second_block)
+
+
+@pytest.mark.parametrize("quant_format", ["nvfp4", "hif4", "hif4-1"])
+def test_mxfp8_query_ignores_kv_format_and_protection_windows(quant_format: str):
+    config = Nvfp4KVQuantConfig(
+        chunk_size=64,
+        sink_size=16,
+        target="kv",
+        format=quant_format,
+        recent_size=128,
+        query_format="mxfp8",
+    )
+    query = torch.randn(4, 2, 64, dtype=torch.float32) * 7
+
+    actual = fake_quant_nvfp4_query(query, make_metadata(0, 4), config)
+
+    torch.testing.assert_close(actual, fake_quant_mxfp8_tensor(query))
+
+
+def test_mxfp8_query_rejects_non_multiple_of_32_head_dim():
+    query = torch.randn(4, 2, 48, dtype=torch.float32)
+
+    with pytest.raises(ValueError, match="head_dim divisible by 32"):
+        fake_quant_mxfp8_tensor(query)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required")
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+def test_mxfp8_triton_matches_reference_cuda(dtype: torch.dtype):
+    torch.manual_seed(1357)
+    base = torch.randn(3, 2, 128, dtype=dtype) * 7
+    query_cpu = base[..., ::2]
+    query_cuda = base.cuda()[..., ::2]
+    assert not query_cpu.is_contiguous()
+    assert not query_cuda.is_contiguous()
+
+    expected = fake_quant_mxfp8_tensor(query_cpu)
+    actual = fake_quant_mxfp8_tensor(query_cuda).cpu()
+
+    torch.testing.assert_close(actual, expected)
+
+
+def test_get_kv_quant_config_parses_recent_size():
+    config = get_kv_quant_config(
+        {
+            "kv_quant_format": "hif4",
+            "kv_quant_recent_size": 128,
+        }
+    )
+
+    assert config is not None
+    assert config.recent_size == 128
+
+
+@pytest.mark.parametrize("quant_format", ["none", "nvfp4"])
+def test_get_kv_quant_config_rejects_recent_size_for_non_hif4(quant_format: str):
+    with pytest.raises(ValueError, match="only supports hif4/hif4-1"):
+        get_kv_quant_config(
+            {
+                "kv_quant_format": quant_format,
+                "kv_quant_recent_size": 1,
+            }
+        )

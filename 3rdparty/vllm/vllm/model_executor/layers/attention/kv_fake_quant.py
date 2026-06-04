@@ -25,8 +25,9 @@ class KVQuantConfig:
     sink_size: int
     target: str
     format: str = "nvfp4"
+    recent_size: int = 0
     group_size: int = 16
-    quant_query: bool = False
+    query_format: str = "none"
 
     @property
     def quant_k(self) -> bool:
@@ -42,6 +43,18 @@ Nvfp4KVQuantConfig = KVQuantConfig
 
 def get_kv_quant_config(additional_config: dict[str, Any]) -> KVQuantConfig | None:
     quant_format = additional_config.get("kv_quant_format", "none")
+    recent_size = int(additional_config.get("kv_quant_recent_size", 0))
+    quant_query = additional_config.get("kv_quant_query", "none")
+    if recent_size < 0:
+        raise ValueError("kv_quant_recent_size must be non-negative.")
+    if recent_size > 0 and quant_format not in ("hif4", "hif4-1"):
+        raise ValueError(
+            "kv_quant_recent_size only supports hif4/hif4-1 KV quantization."
+        )
+    if quant_query not in ("none", "enabled", "mxfp8"):
+        raise ValueError(f"Unsupported kv_quant_query: {quant_query}")
+    if quant_format == "none" and quant_query != "none":
+        raise ValueError("kv_quant_query requires KV quantization to be enabled.")
     if quant_format == "none":
         return None
     if quant_format not in ("nvfp4", "hif4", "hif4-1"):
@@ -50,22 +63,20 @@ def get_kv_quant_config(additional_config: dict[str, Any]) -> KVQuantConfig | No
     chunk_size = int(additional_config.get("kv_quant_chunk_size", 64))
     sink_size = int(additional_config.get("kv_quant_sink_size", 4))
     target = additional_config.get("kv_quant_target", "kv")
-    quant_query = additional_config.get("kv_quant_query", "none")
     if quant_format == "nvfp4" and chunk_size < 1:
         raise ValueError("kv_quant_chunk_size must be positive.")
     if sink_size < 0:
         raise ValueError("kv_quant_sink_size must be non-negative.")
     if target not in ("kv", "k", "v"):
         raise ValueError(f"Unsupported kv_quant_target: {target}")
-    if quant_query not in ("none", "enabled"):
-        raise ValueError(f"Unsupported kv_quant_query: {quant_query}")
 
     return KVQuantConfig(
         chunk_size=chunk_size,
         sink_size=sink_size,
         target=target,
         format=quant_format,
-        quant_query=quant_query == "enabled",
+        recent_size=recent_size,
+        query_format={"none": "none", "enabled": "kv", "mxfp8": "mxfp8"}[quant_query],
     )
 
 
@@ -117,6 +128,41 @@ def fake_quant_hif4_tensor(x: torch.Tensor, quant_format: str = "hif4") -> torch
     return out
 
 
+def fake_quant_mxfp8_tensor(x: torch.Tensor) -> torch.Tensor:
+    """Apply OCP MXFP8 E4M3 fake quant-dequant along the last dimension."""
+    if x.ndim != 3:
+        raise ValueError(f"Expected [tokens, heads, head_dim], got {tuple(x.shape)}")
+    if x.shape[-1] % 32 != 0:
+        raise ValueError(f"MXFP8 requires head_dim divisible by 32, got {x.shape[-1]}.")
+    if x.shape[0] == 0:
+        return x
+    if not x.is_cuda:
+        original_shape = x.shape
+        grouped = x.to(torch.float32).reshape(*original_shape[:-1], -1, 32)
+        amax = grouped.abs().amax(dim=-1, keepdim=True)
+        scale_exp = torch.ceil(torch.log2(amax / FP8_E4M3FN_MAX))
+        scale_exp = torch.clamp(scale_exp, min=-127.0, max=127.0)
+        scale = torch.where(amax == 0, torch.ones_like(amax), torch.exp2(scale_exp))
+        quant = cast_to_fp8_e4m3fn(grouped / scale).to(torch.float32)
+        return (quant * scale).reshape(original_shape).to(x.dtype)
+
+    out = torch.empty_like(x)
+    num_tokens, num_heads, head_dim = x.shape
+    _fake_quant_mxfp8_tensor_kernel[(num_tokens * num_heads, head_dim // 32)](
+        x,
+        out,
+        x.stride(0),
+        x.stride(1),
+        x.stride(2),
+        out.stride(0),
+        out.stride(1),
+        out.stride(2),
+        num_heads,
+        BLOCK_DIMS=32,
+    )
+    return out
+
+
 def fake_quant_nvfp4_per_head_chunk(
     x: torch.Tensor,
     group_size: int = 16,
@@ -147,8 +193,12 @@ def fake_quant_kv_query(
     config: KVQuantConfig,
 ) -> torch.Tensor:
     """Fake quantize Q after RoPE, before QK matmul."""
-    if attn_metadata is None or not config.quant_query:
+    if attn_metadata is None or config.query_format == "none":
         return query
+    if config.query_format == "mxfp8":
+        return fake_quant_mxfp8_tensor(query)
+    if config.query_format != "kv":
+        raise ValueError(f"Unsupported query format: {config.query_format}")
     if config.format in ("hif4", "hif4-1"):
         return fake_quant_hif4_tensor(query, config.format)
     if config.format == "nvfp4" and query.is_cuda:
@@ -206,6 +256,7 @@ def fake_quant_hif4_new_kv(
                 seq_lens,
                 attn_metadata,
                 config.sink_size,
+                config.recent_size,
                 config.format == "hif4-1",
             )
         if config.quant_v:
@@ -215,19 +266,23 @@ def fake_quant_hif4_new_kv(
                 seq_lens,
                 attn_metadata,
                 config.sink_size,
+                config.recent_size,
                 config.format == "hif4-1",
             )
         return key, value
 
     num_actual_tokens = int(getattr(attn_metadata, "num_actual_tokens", key.shape[0]))
-    token_positions = _new_token_positions(
+    token_positions, req_indices = _new_token_positions(
         num_actual_tokens,
         query_start_loc,
         seq_lens,
         key.device,
     )
     quant_mask = torch.zeros(key.shape[0], device=key.device, dtype=torch.bool)
-    quant_mask[:num_actual_tokens] = token_positions >= config.sink_size
+    quant_ends = seq_lens.index_select(0, req_indices) - config.recent_size
+    quant_mask[:num_actual_tokens] = (token_positions >= config.sink_size) & (
+        token_positions < quant_ends
+    )
     quant_mask = quant_mask.view(-1, 1, 1)
     if config.quant_k:
         key_quant = fake_quant_hif4_tensor(key, config.format)
@@ -253,7 +308,18 @@ def rewrite_quantized_kv(
     if query_start_loc is None or seq_lens is None or block_table is None:
         raise ValueError("KV fake quant requires full attention metadata.")
 
-    if config.format in ("hif4", "hif4-1"):
+    if config.format in ("hif4", "hif4-1") and config.recent_size == 0:
+        return
+    if config.format in ("hif4", "hif4-1") and key_cache.is_cuda:
+        _rewrite_hif4_recent_kv_cache_cuda(
+            key_cache,
+            value_cache,
+            query_start_loc,
+            seq_lens,
+            block_table,
+            attn_metadata,
+            config,
+        )
         return
     if config.format == "nvfp4" and key_cache.is_cuda:
         _rewrite_nvfp4_kv_cache_cuda(
@@ -324,8 +390,9 @@ def _quantized_ranges(
             for chunk_idx in range(prev_chunks, cur_chunks)
         ]
     if config.format in ("hif4", "hif4-1"):
-        start = max(context_len, config.sink_size)
-        return [(start, seq_len)] if start < seq_len else []
+        start = max(config.sink_size, context_len - config.recent_size)
+        end = min(context_len, seq_len - config.recent_size)
+        return [(start, end)] if start < end else []
     raise ValueError(f"Unsupported kv_quant_format: {config.format}")
 
 
@@ -334,13 +401,13 @@ def _new_token_positions(
     query_start_loc: torch.Tensor,
     seq_lens: torch.Tensor,
     device: torch.device,
-) -> torch.Tensor:
+) -> tuple[torch.Tensor, torch.Tensor]:
     token_indices = torch.arange(num_tokens, device=device, dtype=torch.long)
     req_idx = torch.searchsorted(query_start_loc[1:], token_indices, right=False)
     query_lens = query_start_loc[1:] - query_start_loc[:-1]
     context_lens = seq_lens - query_lens
     query_offsets = token_indices - query_start_loc.index_select(0, req_idx)
-    return context_lens.index_select(0, req_idx) + query_offsets
+    return context_lens.index_select(0, req_idx) + query_offsets, req_idx
 
 
 def _cache_indices_for_positions(
@@ -464,6 +531,7 @@ def _fake_quant_hif4_new_kv_cuda(
     seq_lens: torch.Tensor,
     attn_metadata: Any,
     sink_size: int,
+    recent_size: int,
     hif4_1: bool,
 ) -> torch.Tensor:
     if x.ndim != 3:
@@ -490,12 +558,64 @@ def _fake_quant_hif4_new_kv_cuda(
         num_heads,
         num_actual_tokens,
         sink_size,
+        recent_size,
         BLOCK_DIMS=64,
         HEAD_DIM=head_dim,
         NUM_REQS=num_reqs,
         HIF4_1=hif4_1,
     )
     return out
+
+
+def _rewrite_hif4_recent_kv_cache_cuda(
+    key_cache: torch.Tensor,
+    value_cache: torch.Tensor,
+    query_start_loc: torch.Tensor,
+    seq_lens: torch.Tensor,
+    block_table: torch.Tensor,
+    attn_metadata: Any,
+    config: KVQuantConfig,
+) -> None:
+    max_query_len = int(getattr(attn_metadata, "max_query_len", 0))
+    if max_query_len <= 0:
+        max_query_len = int((query_start_loc[1:] - query_start_loc[:-1]).max().item())
+    max_rewrite_tokens = min(config.recent_size, max_query_len)
+    if max_rewrite_tokens == 0:
+        return
+
+    def rewrite(cache: torch.Tensor) -> None:
+        num_reqs = int(seq_lens.numel())
+        num_heads = cache.shape[-2]
+        head_dim = cache.shape[-1]
+        _rewrite_hif4_recent_cache_kernel[
+            (
+                num_reqs,
+                max_rewrite_tokens * num_heads,
+                triton.cdiv(head_dim, 64),
+            )
+        ](
+            cache,
+            query_start_loc,
+            seq_lens,
+            block_table,
+            cache.stride(0),
+            cache.stride(1),
+            cache.stride(2),
+            cache.stride(3),
+            block_table.stride(0),
+            num_heads,
+            config.sink_size,
+            config.recent_size,
+            cache.shape[1],
+            HIF4_1=config.format == "hif4-1",
+            BLOCK_DIMS=64,
+            HEAD_DIM=head_dim,
+        )
+
+    if config.quant_k:
+        rewrite(key_cache)
+    if config.quant_v:
+        rewrite(value_cache)
 
 
 @triton.jit
@@ -621,6 +741,7 @@ def _fake_quant_hif4_new_kv_kernel(
     num_heads,
     num_actual_tokens,
     sink_size,
+    recent_size,
     BLOCK_DIMS: tl.constexpr,
     HEAD_DIM: tl.constexpr,
     NUM_REQS: tl.constexpr,
@@ -639,18 +760,26 @@ def _fake_quant_hif4_new_kv_kernel(
     ).to(tl.float32)
 
     abs_pos = tl.full((), 0, tl.int64)
+    quant_end = tl.full((), 0, tl.int64)
     found = token_idx < 0
     for req_idx in tl.static_range(0, NUM_REQS):
         query_start = tl.load(query_start_loc_ptr + req_idx)
         query_end = tl.load(query_start_loc_ptr + req_idx + 1)
         in_req = (token_idx >= query_start) & (token_idx < query_end)
         query_len = query_end - query_start
-        context_len = tl.load(seq_lens_ptr + req_idx) - query_len
+        seq_len = tl.load(seq_lens_ptr + req_idx)
+        context_len = seq_len - query_len
         req_abs_pos = context_len + token_idx - query_start
         abs_pos = tl.where(in_req, req_abs_pos, abs_pos)
+        quant_end = tl.where(in_req, seq_len - recent_size, quant_end)
         found = found | in_req
 
-    should_quant = (token_idx < num_actual_tokens) & found & (abs_pos >= sink_size)
+    should_quant = (
+        (token_idx < num_actual_tokens)
+        & found
+        & (abs_pos >= sink_size)
+        & (abs_pos < quant_end)
+    )
     if HIF4_1:
         quant = _hif4_1_fake_quant_block_tl(x, mask, BLOCK_DIMS)
     else:
@@ -664,6 +793,63 @@ def _fake_quant_hif4_new_kv_kernel(
 
 
 @triton.jit
+def _rewrite_hif4_recent_cache_kernel(
+    cache_ptr,
+    query_start_loc_ptr,
+    seq_lens_ptr,
+    block_table_ptr,
+    cache_stride_0,
+    cache_stride_1,
+    cache_stride_2,
+    cache_stride_3,
+    block_table_stride_0,
+    num_heads,
+    sink_size,
+    recent_size,
+    block_size,
+    HIF4_1: tl.constexpr,
+    BLOCK_DIMS: tl.constexpr,
+    HEAD_DIM: tl.constexpr,
+):
+    req_idx = tl.program_id(0)
+    row = tl.program_id(1)
+    block_idx = tl.program_id(2)
+    token_offset = row // num_heads
+    head_idx = row - token_offset * num_heads
+
+    query_start = tl.load(query_start_loc_ptr + req_idx)
+    query_end = tl.load(query_start_loc_ptr + req_idx + 1)
+    query_len = query_end - query_start
+    seq_len = tl.load(seq_lens_ptr + req_idx)
+    context_len = seq_len - query_len
+    start = tl.maximum(sink_size, context_len - recent_size)
+    end = tl.minimum(context_len, seq_len - recent_size)
+    position = start + token_offset
+    process = position < end
+
+    block_id = tl.load(
+        block_table_ptr + req_idx * block_table_stride_0 + position // block_size,
+        mask=process,
+        other=0,
+    )
+    dims = block_idx * BLOCK_DIMS + tl.arange(0, BLOCK_DIMS)
+    mask = process & (dims < HEAD_DIM)
+    ptrs = (
+        cache_ptr
+        + block_id * cache_stride_0
+        + (position % block_size) * cache_stride_1
+        + head_idx * cache_stride_2
+        + dims * cache_stride_3
+    )
+    x = tl.load(ptrs, mask=mask, other=0.0).to(tl.float32)
+    if HIF4_1:
+        out = _hif4_1_fake_quant_block_tl(x, mask, BLOCK_DIMS)
+    else:
+        out = _hif4_fake_quant_block_tl(x, mask, BLOCK_DIMS)
+    tl.store(ptrs, out, mask=mask)
+
+
+@triton.jit
 def _cast_to_fp8_e4m3fn_tl(x):
     sign = tl.where(x < 0.0, -1.0, 1.0)
     abs_x = tl.minimum(tl.abs(x), 448.0)
@@ -674,6 +860,44 @@ def _cast_to_fp8_e4m3fn_tl(x):
     rounded = _round_nearest_even_tl(abs_x / step) * step
     rounded = tl.minimum(rounded, 448.0)
     return rounded * sign
+
+
+@triton.jit
+def _fake_quant_mxfp8_tensor_kernel(
+    x_ptr,
+    out_ptr,
+    x_stride_0,
+    x_stride_1,
+    x_stride_2,
+    out_stride_0,
+    out_stride_1,
+    out_stride_2,
+    num_heads,
+    BLOCK_DIMS: tl.constexpr,
+):
+    row = tl.program_id(0)
+    block_idx = tl.program_id(1)
+    token_idx = row // num_heads
+    head_idx = row - token_idx * num_heads
+    dims = block_idx * BLOCK_DIMS + tl.arange(0, BLOCK_DIMS)
+    x = tl.load(
+        x_ptr + token_idx * x_stride_0 + head_idx * x_stride_1 + dims * x_stride_2
+    ).to(tl.float32)
+
+    amax = tl.max(tl.abs(x), axis=0)
+    raw_scale = amax / 448.0
+    scale_exp = tl.ceil(tl.log2(tl.where(raw_scale == 0.0, 1.0, raw_scale)))
+    scale_exp = tl.minimum(tl.maximum(scale_exp, -127.0), 127.0)
+    scale = tl.where(amax == 0.0, 1.0, tl.exp2(scale_exp))
+    out = _cast_to_fp8_e4m3fn_tl(x / scale) * scale
+
+    tl.store(
+        out_ptr
+        + token_idx * out_stride_0
+        + head_idx * out_stride_1
+        + dims * out_stride_2,
+        out,
+    )
 
 
 @triton.jit

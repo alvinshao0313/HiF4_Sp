@@ -1,0 +1,129 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1900" height="2300" viewBox="0 0 1900 2300">
+  <defs>
+    <style>
+      .title { font: 700 34px "DejaVu Sans", sans-serif; fill: #10233d; }
+      .subtitle { font: 400 18px "DejaVu Sans", sans-serif; fill: #42566f; }
+      .h { font: 700 21px "DejaVu Sans", sans-serif; fill: #10233d; }
+      .t { font: 400 17px "DejaVu Sans", sans-serif; fill: #17324d; }
+      .s { font: 400 15px "DejaVu Sans", sans-serif; fill: #42566f; }
+      .mono { font: 400 15px "DejaVu Sans Mono", monospace; fill: #17324d; }
+      .arrow { stroke: #23415f; stroke-width: 2.3; fill: none; marker-end: url(#arrow); }
+      .blue { fill: #e7eef8; stroke: #35658f; stroke-width: 2.3; rx: 12; }
+      .orange { fill: #fff0dd; stroke: #d47a17; stroke-width: 2.3; rx: 12; }
+      .purple { fill: #eee8fa; stroke: #7654a8; stroke-width: 2.3; rx: 12; }
+      .green { fill: #e1f3ed; stroke: #238463; stroke-width: 2.3; rx: 12; }
+    </style>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L9,3 z" fill="#23415f"/>
+    </marker>
+  </defs>
+  <rect width="1900" height="2300" fill="#f6f9fc"/>
+  <text x="70" y="68" class="title">Qwen3.5-27B Full Attention Layer: Gated Causal GQA</text>
+  <text x="70" y="102" class="subtitle">16 of 64 layers | exact global token-to-token interaction</text>
+
+  <rect x="70" y="140" width="1760" height="100" class="blue"/>
+  <text x="100" y="180" class="h">Layer input and common pre-norm shell</text>
+  <text x="100" y="215" class="mono">x: [B, T, 5,120] -> input RMSNorm(5,120, eps=1e-6) -> h: [B, T, 5,120]</text>
+
+  <rect x="70" y="285" width="1760" height="485" rx="18" fill="#ffffff" stroke="#d47a17" stroke-width="3"/>
+  <text x="100" y="330" class="h">1. Q, K, V and output-gate projections</text>
+
+  <rect x="105" y="385" width="480" height="130" class="orange"/>
+  <text x="345" y="422" text-anchor="middle" class="h">q_proj generates Q + gate</text>
+  <text x="345" y="455" text-anchor="middle" class="mono">W: [12,288, 5,120]</text>
+  <text x="345" y="485" text-anchor="middle" class="mono">Q: 24x256 = 6,144</text>
+  <text x="345" y="510" text-anchor="middle" class="mono">gate: 24x256 = 6,144</text>
+
+  <rect x="710" y="385" width="400" height="130" class="orange"/>
+  <text x="910" y="422" text-anchor="middle" class="h">k_proj</text>
+  <text x="910" y="455" text-anchor="middle" class="mono">W: [1,024, 5,120]</text>
+  <text x="910" y="485" text-anchor="middle" class="mono">K: 4x256 = 1,024</text>
+
+  <rect x="1235" y="385" width="400" height="130" class="orange"/>
+  <text x="1435" y="422" text-anchor="middle" class="h">v_proj</text>
+  <text x="1435" y="455" text-anchor="middle" class="mono">W: [1,024, 5,120]</text>
+  <text x="1435" y="485" text-anchor="middle" class="mono">V: 4x256 = 1,024</text>
+
+  <path d="M345 515 V575" class="arrow"/>
+  <rect x="155" y="575" width="380" height="105" class="purple"/>
+  <text x="345" y="612" text-anchor="middle" class="h">Q head RMSNorm</text>
+  <text x="345" y="645" text-anchor="middle" class="mono">24 heads, weight [256]</text>
+
+  <path d="M910 515 V575" class="arrow"/>
+  <rect x="720" y="575" width="380" height="105" class="purple"/>
+  <text x="910" y="612" text-anchor="middle" class="h">K head RMSNorm</text>
+  <text x="910" y="645" text-anchor="middle" class="mono">4 heads, weight [256]</text>
+
+  <path d="M1435 515 V575" class="arrow"/>
+  <rect x="1245" y="575" width="380" height="105" class="purple"/>
+  <text x="1435" y="612" text-anchor="middle" class="h">V unchanged</text>
+  <text x="1435" y="645" text-anchor="middle" class="mono">4 heads x 256</text>
+
+  <rect x="70" y="815" width="1760" height="730" rx="18" fill="#ffffff" stroke="#d47a17" stroke-width="3"/>
+  <text x="100" y="860" class="h">2. Partial RoPE, grouped-query sharing, causal softmax attention</text>
+
+  <rect x="120" y="915" width="510" height="130" class="orange"/>
+  <text x="375" y="952" text-anchor="middle" class="h">Partial interleaved M-RoPE on Q/K</text>
+  <text x="375" y="985" text-anchor="middle" class="mono">first 64 of each 256-d head</text>
+  <text x="375" y="1015" text-anchor="middle" class="mono">partial factor 0.25 | theta 10,000,000</text>
+
+  <path d="M345 680 V790 H375 V915" class="arrow"/>
+  <path d="M910 680 V790 H375 V915" class="arrow"/>
+
+  <rect x="735" y="915" width="440" height="130" class="orange"/>
+  <text x="955" y="952" text-anchor="middle" class="h">Grouped-query sharing</text>
+  <text x="955" y="985" text-anchor="middle" class="mono">4 KV heads -> repeat 6x -> 24</text>
+  <text x="955" y="1015" text-anchor="middle" class="s">each KV head serves 6 Q heads</text>
+  <path d="M910 1045 V1100" class="arrow"/>
+  <path d="M1435 680 V1100 H955" class="arrow"/>
+
+  <rect x="1250" y="915" width="480" height="130" class="blue"/>
+  <text x="1490" y="952" text-anchor="middle" class="h">Growing K/V cache</text>
+  <text x="1490" y="985" text-anchor="middle" class="mono">per token per Full layer: 2,048 elements</text>
+  <text x="1490" y="1015" text-anchor="middle" class="s">K + V = 2 x 4 x 256</text>
+  <path d="M1435 680 V915" class="arrow"/>
+
+  <rect x="330" y="1150" width="1240" height="190" class="orange"/>
+  <text x="950" y="1192" text-anchor="middle" class="h">Causal scaled dot-product attention</text>
+  <text x="950" y="1232" text-anchor="middle" class="mono">scores = (Q K^T) / sqrt(256) + causal_mask</text>
+  <text x="950" y="1270" text-anchor="middle" class="mono">P = softmax(scores, dim=keys)</text>
+  <text x="950" y="1308" text-anchor="middle" class="mono">O = P V        -> [B, T, 24, 256] -> [B, T, 6,144]</text>
+  <path d="M375 1045 V1120 H800 V1150" class="arrow"/>
+  <path d="M955 1045 V1150" class="arrow"/>
+  <path d="M1490 1045 V1120 H1100 V1150" class="arrow"/>
+
+  <path d="M950 1340 V1400" class="arrow"/>
+  <rect x="700" y="1400" width="500" height="100" class="purple"/>
+  <text x="950" y="1437" text-anchor="middle" class="h">Output gate</text>
+  <text x="950" y="1470" text-anchor="middle" class="mono">O_gated = O * sigmoid(gate)</text>
+  <path d="M345 515 V550 H70 V1450 H700" class="arrow"/>
+
+  <rect x="70" y="1590" width="1760" height="235" rx="18" fill="#ffffff" stroke="#7654a8" stroke-width="3"/>
+  <text x="100" y="1635" class="h">3. Output projection</text>
+  <path d="M950 1500 V1665" class="arrow"/>
+  <rect x="655" y="1665" width="590" height="105" class="purple"/>
+  <text x="950" y="1702" text-anchor="middle" class="h">o_proj</text>
+  <text x="950" y="1735" text-anchor="middle" class="mono">6,144 -> 5,120 | W: [5,120, 6,144]</text>
+  <text x="950" y="1762" text-anchor="middle" class="s">Full Attention submodule output</text>
+
+  <rect x="70" y="1870" width="1760" height="300" rx="18" fill="#ffffff" stroke="#35658f" stroke-width="3"/>
+  <text x="100" y="1915" class="h">4. Common Decoder shell after token mixer</text>
+  <rect x="120" y="1970" width="320" height="95" class="blue"/>
+  <text x="280" y="2005" text-anchor="middle" class="h">Residual add</text>
+  <text x="280" y="2037" text-anchor="middle" class="mono">x + Attn(h)</text>
+  <path d="M440 2017 H520" class="arrow"/>
+  <rect x="520" y="1970" width="320" height="95" class="blue"/>
+  <text x="680" y="2005" text-anchor="middle" class="h">RMSNorm</text>
+  <text x="680" y="2037" text-anchor="middle" class="mono">5,120</text>
+  <path d="M840 2017 H920" class="arrow"/>
+  <rect x="920" y="1970" width="450" height="95" class="blue"/>
+  <text x="1145" y="2005" text-anchor="middle" class="h">Dense SwiGLU MLP</text>
+  <text x="1145" y="2037" text-anchor="middle" class="mono">5,120 -> 17,408 -> 5,120</text>
+  <path d="M1370 2017 H1450" class="arrow"/>
+  <rect x="1450" y="1970" width="320" height="95" class="blue"/>
+  <text x="1610" y="2005" text-anchor="middle" class="h">Residual add</text>
+  <text x="1610" y="2037" text-anchor="middle" class="mono">layer output</text>
+
+  <text x="100" y="2120" class="s">Full Attention parameters per layer: 104,858,112 | Full decoder layer including MLP and norms: 372,255,232</text>
+  <text x="100" y="2210" class="s">Unlike Linear Attention, Full Attention computes and stores exact per-token K/V, so cache memory grows linearly with context length.</text>
+</svg>

@@ -1,0 +1,164 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2000" height="2500" viewBox="0 0 2000 2500">
+  <defs>
+    <style>
+      .title { font: 700 34px "DejaVu Sans", sans-serif; fill: #10233d; }
+      .subtitle { font: 400 18px "DejaVu Sans", sans-serif; fill: #42566f; }
+      .h { font: 700 21px "DejaVu Sans", sans-serif; fill: #10233d; }
+      .t { font: 400 17px "DejaVu Sans", sans-serif; fill: #17324d; }
+      .s { font: 400 15px "DejaVu Sans", sans-serif; fill: #42566f; }
+      .mono { font: 400 15px "DejaVu Sans Mono", monospace; fill: #17324d; }
+      .box { stroke: #23415f; stroke-width: 2; rx: 12; }
+      .arrow { stroke: #23415f; stroke-width: 2.3; fill: none; marker-end: url(#arrow); }
+      .green { fill: #e1f3ed; stroke: #238463; stroke-width: 2.3; rx: 12; }
+      .blue { fill: #e7eef8; stroke: #35658f; stroke-width: 2.3; rx: 12; }
+      .orange { fill: #fff0dd; stroke: #d47a17; stroke-width: 2.3; rx: 12; }
+      .purple { fill: #eee8fa; stroke: #7654a8; stroke-width: 2.3; rx: 12; }
+    </style>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L9,3 z" fill="#23415f"/>
+    </marker>
+  </defs>
+  <rect width="2000" height="2500" fill="#f6f9fc"/>
+  <text x="70" y="68" class="title">Qwen3.5-27B Linear Attention Layer: Gated DeltaNet</text>
+  <text x="70" y="102" class="subtitle">48 of 64 layers | fixed recurrent state instead of a growing KV cache</text>
+
+  <rect x="70" y="140" width="1860" height="100" class="blue"/>
+  <text x="100" y="180" class="h">Layer input and common pre-norm shell</text>
+  <text x="100" y="215" class="mono">x: [B, T, 5,120] -> input RMSNorm(5,120, eps=1e-6) -> h: [B, T, 5,120]</text>
+
+  <rect x="70" y="285" width="1860" height="565" rx="18" fill="#ffffff" stroke="#238463" stroke-width="3"/>
+  <text x="100" y="330" class="h">1. Input-dependent projections</text>
+
+  <rect x="110" y="375" width="360" height="115" class="green"/>
+  <text x="290" y="410" text-anchor="middle" class="h">in_proj_qkv</text>
+  <text x="290" y="442" text-anchor="middle" class="mono">W: [10,240, 5,120]</text>
+  <text x="290" y="470" text-anchor="middle" class="s">Q 2,048 | K 2,048 | V 6,144</text>
+
+  <rect x="580" y="375" width="360" height="115" class="purple"/>
+  <text x="760" y="410" text-anchor="middle" class="h">in_proj_z</text>
+  <text x="760" y="442" text-anchor="middle" class="mono">W: [6,144, 5,120]</text>
+  <text x="760" y="470" text-anchor="middle" class="s">Z: 48 heads x 128</text>
+
+  <rect x="1050" y="375" width="360" height="115" class="orange"/>
+  <text x="1230" y="410" text-anchor="middle" class="h">in_proj_b</text>
+  <text x="1230" y="442" text-anchor="middle" class="mono">W: [48, 5,120]</text>
+  <text x="1230" y="470" text-anchor="middle" class="s">one beta control per V head</text>
+
+  <rect x="1520" y="375" width="360" height="115" class="orange"/>
+  <text x="1700" y="410" text-anchor="middle" class="h">in_proj_a</text>
+  <text x="1700" y="442" text-anchor="middle" class="mono">W: [48, 5,120]</text>
+  <text x="1700" y="470" text-anchor="middle" class="s">one decay control per V head</text>
+
+  <path d="M290 490 V555" class="arrow"/>
+  <rect x="110" y="555" width="560" height="135" class="green"/>
+  <text x="390" y="590" text-anchor="middle" class="h">Depthwise causal Conv1D + SiLU</text>
+  <text x="390" y="622" text-anchor="middle" class="mono">10,240 channels | groups=10,240 | kernel=4</text>
+  <text x="390" y="654" text-anchor="middle" class="s">short-range local mixing; caches the previous 3 positions</text>
+
+  <path d="M390 690 V745" class="arrow"/>
+  <rect x="110" y="745" width="560" height="75" class="green"/>
+  <text x="390" y="778" text-anchor="middle" class="h">Split Q / K / V and reshape</text>
+  <text x="390" y="805" text-anchor="middle" class="mono">Q,K: 16x128 | V: 48x128</text>
+
+  <path d="M760 490 V745" class="arrow"/>
+  <rect x="710" y="745" width="300" height="75" class="purple"/>
+  <text x="860" y="778" text-anchor="middle" class="h">reshape Z</text>
+  <text x="860" y="805" text-anchor="middle" class="mono">48 x 128</text>
+
+  <path d="M1230 490 V745" class="arrow"/>
+  <rect x="1060" y="745" width="300" height="75" class="orange"/>
+  <text x="1210" y="778" text-anchor="middle" class="h">sigmoid</text>
+  <text x="1210" y="805" text-anchor="middle" class="mono">beta_t: [48]</text>
+
+  <path d="M1700 490 V745" class="arrow"/>
+  <rect x="1410" y="715" width="470" height="105" class="orange"/>
+  <text x="1645" y="750" text-anchor="middle" class="h">decay gate</text>
+  <text x="1645" y="782" text-anchor="middle" class="mono">g_t = -exp(A_log) * softplus(a_t + dt_bias)</text>
+  <text x="1645" y="807" text-anchor="middle" class="s">A_log, dt_bias: learned [48]</text>
+
+  <rect x="70" y="895" width="1860" height="875" rx="18" fill="#ffffff" stroke="#238463" stroke-width="3"/>
+  <text x="100" y="940" class="h">2. Gated Delta Rule recurrent token mixer</text>
+  <text x="100" y="972" class="s">Operations below run independently for each of 48 value heads. Q/K heads are repeated 3x to align 16 -> 48.</text>
+
+  <rect x="115" y="1020" width="430" height="105" class="green"/>
+  <text x="330" y="1055" text-anchor="middle" class="h">Q/K preparation</text>
+  <text x="330" y="1087" text-anchor="middle" class="mono">repeat heads 3x; L2Norm; q /= sqrt(128)</text>
+  <text x="330" y="1112" text-anchor="middle" class="s">q_t, k_t in R^128</text>
+
+  <rect x="710" y="1020" width="540" height="105" class="purple"/>
+  <text x="980" y="1055" text-anchor="middle" class="h">Previous recurrent state</text>
+  <text x="980" y="1087" text-anchor="middle" class="mono">S_(t-1): [48, 128, 128] per sequence</text>
+  <text x="980" y="1112" text-anchor="middle" class="s">fixed size, independent of context length</text>
+
+  <path d="M980 1125 V1180" class="arrow"/>
+  <rect x="710" y="1180" width="540" height="90" class="green"/>
+  <text x="980" y="1215" text-anchor="middle" class="h">Forget / decay old state</text>
+  <text x="980" y="1248" text-anchor="middle" class="mono">S' = exp(g_t) * S_(t-1)</text>
+
+  <path d="M980 1270 V1325" class="arrow"/>
+  <path d="M545 1070 H650 V1365 H710" class="arrow"/>
+  <rect x="710" y="1325" width="540" height="105" class="green"/>
+  <text x="980" y="1360" text-anchor="middle" class="h">Read current key's predicted value</text>
+  <text x="980" y="1392" text-anchor="middle" class="mono">memory = S'^T k_t</text>
+  <text x="980" y="1417" text-anchor="middle" class="s">memory in R^128</text>
+
+  <path d="M980 1430 V1485" class="arrow"/>
+  <path d="M1210 820 V1530 H1250" class="arrow"/>
+  <rect x="710" y="1485" width="540" height="105" class="green"/>
+  <text x="980" y="1520" text-anchor="middle" class="h">Compute write correction</text>
+  <text x="980" y="1552" text-anchor="middle" class="mono">delta = beta_t * (v_t - memory)</text>
+  <text x="980" y="1577" text-anchor="middle" class="s">delta in R^128</text>
+
+  <path d="M980 1590 V1645" class="arrow"/>
+  <rect x="710" y="1645" width="540" height="95" class="green"/>
+  <text x="980" y="1680" text-anchor="middle" class="h">Rank-1 state update</text>
+  <text x="980" y="1712" text-anchor="middle" class="mono">S_t = S' + k_t delta^T</text>
+
+  <path d="M1250 1690 H1370" class="arrow"/>
+  <rect x="1370" y="1625" width="450" height="115" class="green"/>
+  <text x="1595" y="1662" text-anchor="middle" class="h">Read output with query</text>
+  <text x="1595" y="1695" text-anchor="middle" class="mono">o_t = S_t^T q_t</text>
+  <text x="1595" y="1722" text-anchor="middle" class="s">o_t: 48 heads x 128</text>
+
+  <rect x="70" y="1815" width="1860" height="300" rx="18" fill="#ffffff" stroke="#7654a8" stroke-width="3"/>
+  <text x="100" y="1860" class="h">3. Output gate and projection</text>
+
+  <rect x="170" y="1910" width="500" height="105" class="purple"/>
+  <text x="420" y="1947" text-anchor="middle" class="h">Per-head gated RMSNorm</text>
+  <text x="420" y="1980" text-anchor="middle" class="mono">y_h = RMSNorm(o_h) * SiLU(z_h)</text>
+  <text x="420" y="2005" text-anchor="middle" class="s">shared norm weight shape: [128]</text>
+  <path d="M860 820 V1870 H420 V1910" class="arrow"/>
+  <path d="M1595 1740 V1870 H420 V1910" class="arrow"/>
+
+  <path d="M670 1962 H810" class="arrow"/>
+  <rect x="810" y="1910" width="400" height="105" class="purple"/>
+  <text x="1010" y="1947" text-anchor="middle" class="h">Concatenate heads</text>
+  <text x="1010" y="1980" text-anchor="middle" class="mono">48 x 128 = 6,144</text>
+
+  <path d="M1210 1962 H1350" class="arrow"/>
+  <rect x="1350" y="1910" width="400" height="105" class="purple"/>
+  <text x="1550" y="1947" text-anchor="middle" class="h">out_proj</text>
+  <text x="1550" y="1980" text-anchor="middle" class="mono">6,144 -> 5,120</text>
+  <text x="1550" y="2005" text-anchor="middle" class="s">W: [5,120, 6,144]</text>
+
+  <rect x="70" y="2160" width="1860" height="270" rx="18" fill="#ffffff" stroke="#35658f" stroke-width="3"/>
+  <text x="100" y="2205" class="h">4. Common Decoder shell after token mixer</text>
+  <rect x="125" y="2250" width="330" height="95" class="blue"/>
+  <text x="290" y="2285" text-anchor="middle" class="h">Residual add</text>
+  <text x="290" y="2317" text-anchor="middle" class="mono">x + GDN(h)</text>
+  <path d="M455 2297 H540" class="arrow"/>
+  <rect x="540" y="2250" width="330" height="95" class="blue"/>
+  <text x="705" y="2285" text-anchor="middle" class="h">RMSNorm</text>
+  <text x="705" y="2317" text-anchor="middle" class="mono">5,120</text>
+  <path d="M870 2297 H955" class="arrow"/>
+  <rect x="955" y="2250" width="470" height="95" class="blue"/>
+  <text x="1190" y="2285" text-anchor="middle" class="h">Dense SwiGLU MLP</text>
+  <text x="1190" y="2317" text-anchor="middle" class="mono">5,120 -> 17,408 -> 5,120</text>
+  <path d="M1425 2297 H1510" class="arrow"/>
+  <rect x="1510" y="2250" width="330" height="95" class="blue"/>
+  <text x="1675" y="2285" text-anchor="middle" class="h">Residual add</text>
+  <text x="1675" y="2317" text-anchor="middle" class="mono">layer output</text>
+
+  <text x="100" y="2395" class="s">Linear Attention parameters per layer: 115,876,064 | Full decoder layer including MLP and norms: 383,273,184</text>
+</svg>
+

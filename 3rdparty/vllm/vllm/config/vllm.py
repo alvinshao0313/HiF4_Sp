@@ -682,6 +682,25 @@ class VllmConfig:
         # To give each torch profile run a unique instance name.
         self.instance_id = f"{time.time_ns()}"
 
+        if isinstance(self.additional_config, dict):
+            kv_quant_recent_size = int(
+                self.additional_config.get("kv_quant_recent_size", 0)
+            )
+            kv_quant_format = self.additional_config.get("kv_quant_format", "none")
+            if kv_quant_recent_size < 0:
+                raise ValueError("kv_quant_recent_size must be non-negative.")
+            if kv_quant_recent_size > 0 and kv_quant_format not in ("hif4", "hif4-1"):
+                raise ValueError(
+                    "kv_quant_recent_size only supports hif4/hif4-1 KV quantization."
+                )
+            if kv_quant_recent_size > 0 and self.cache_config.enable_prefix_caching:
+                logger.warning_once(
+                    "Disabling prefix caching because HiF4 recent-token KV "
+                    "protection rewrites old KV cache entries.",
+                    scope="local",
+                )
+                self.cache_config.enable_prefix_caching = False
+
         if self.performance_mode != "balanced":
             logger.info_once(
                 "Performance mode set to '%s'.", self.performance_mode, scope="local"

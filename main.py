@@ -331,6 +331,12 @@ def parse_args():
         help="前多少个 token 的 KV cache 保持原精度。默认: 4",
     )
     parser.add_argument(
+        "--kv_quant_recent_size",
+        type=int,
+        default=0,
+        help="HiF4 KV cache 最后多少个 token 保持原精度。默认: 0",
+    )
+    parser.add_argument(
         "--kv_quant_target",
         choices=["kv", "k", "v"],
         default="kv",
@@ -338,9 +344,9 @@ def parse_args():
     )
     parser.add_argument(
         "--kv_quant_query",
-        choices=["none", "enabled"],
+        choices=["none", "enabled", "mxfp8"],
         default="none",
-        help="是否额外量化 Q。默认 none；enabled 时在 RoPE 后、QK 点积前按 kv_quant_format 做 Q 伪量化。",
+        help="Q 伪量化格式。默认 none；enabled 跟随 KV；mxfp8 使用 OCP MXFP8 E4M3 block-32。",
     )
     return parser.parse_args()
 
@@ -351,6 +357,12 @@ def main():
         raise ValueError("--kv_quant_chunk_size 须为正整数")
     if args.kv_quant_sink_size < 0:
         raise ValueError("--kv_quant_sink_size 须为非负整数")
+    if args.kv_quant_recent_size < 0:
+        raise ValueError("--kv_quant_recent_size 须为非负整数")
+    if args.kv_quant_recent_size > 0 and args.kv_quant_format not in ("hif4", "hif4-1"):
+        raise ValueError("--kv_quant_recent_size 仅支持 hif4/hif4-1 KV 量化")
+    if args.kv_quant_format == "none" and args.kv_quant_query != "none":
+        raise ValueError("--kv_quant_query 非 none 时必须启用 KV 量化")
 
     # 若指定 num_experts_per_tok，为本地 MoE 模型准备覆盖目录并替换 model_path
     if args.num_experts_per_tok is not None:
@@ -421,6 +433,7 @@ def main():
         dtype="auto",
         enforce_eager=args.enforce_eager,
         cpu_offload_gb=args.cpu_offload_gb,
+        enable_prefix_caching=False if args.kv_quant_recent_size > 0 else None,
         generation_parameters=GenerationParameters(
             temperature=args.temperature,
             top_p=args.top_p,
@@ -443,6 +456,7 @@ def main():
                 "kv_quant_format": args.kv_quant_format,
                 "kv_quant_chunk_size": args.kv_quant_chunk_size,
                 "kv_quant_sink_size": args.kv_quant_sink_size,
+                "kv_quant_recent_size": args.kv_quant_recent_size,
                 "kv_quant_target": args.kv_quant_target,
                 "kv_quant_query": args.kv_quant_query,
             }

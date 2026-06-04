@@ -128,8 +128,11 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 python main.py \
 | `--kv_quant_format` | KV cache fake quant，可选 `none` / `nvfp4` / `hif4` / `hif4-1` |
 | `--kv_quant_chunk_size` | NVFP4 KV fake quant 的 non-sink token chunk 大小，默认 `64`；HiF4 KV 会忽略 |
 | `--kv_quant_sink_size` | 前多少个 token 的 KV cache 保持原精度，默认 `4` |
+| `--kv_quant_recent_size` | HiF4 / HiF4-1 KV cache 最后多少个 token 保持原精度，默认 `0`；启用后自动关闭 prefix caching |
 | `--kv_quant_target` | KV fake quant 目标，可选 `kv` / `k` / `v` |
-| `--kv_quant_query` | 是否额外量化 RoPE 后、QK 点积前的 Q，可选 `none` / `enabled` |
+| `--kv_quant_query` | RoPE 后、QK 点积前的 Q fake quant，可选 `none` / `enabled` / `mxfp8`；`enabled` 跟随 KV 格式，`mxfp8` 使用 OCP MXFP8 E4M3（每 32 个 head_dim 元素共享 E8M0 scale） |
+
+`--kv_quant_query mxfp8` 要求 `head_dim` 能被 32 整除。Q 量化不能在 `--kv_quant_format none` 下单独启用。
 
 注意任务名：
 

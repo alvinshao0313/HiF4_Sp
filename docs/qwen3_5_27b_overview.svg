@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1740" viewBox="0 0 1600 1740">
+  <defs>
+    <style>
+      .title { font: 700 34px "DejaVu Sans", sans-serif; fill: #10233d; }
+      .subtitle { font: 400 18px "DejaVu Sans", sans-serif; fill: #42566f; }
+      .h { font: 700 22px "DejaVu Sans", sans-serif; fill: #10233d; }
+      .t { font: 400 17px "DejaVu Sans", sans-serif; fill: #17324d; }
+      .s { font: 400 15px "DejaVu Sans", sans-serif; fill: #42566f; }
+      .mono { font: 400 15px "DejaVu Sans Mono", monospace; fill: #17324d; }
+      .box { stroke: #23415f; stroke-width: 2; rx: 13; }
+      .arrow { stroke: #23415f; stroke-width: 2.5; fill: none; marker-end: url(#arrow); }
+      .dash { stroke: #6b7f93; stroke-width: 2; stroke-dasharray: 8 7; fill: none; }
+    </style>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L9,3 z" fill="#23415f"/>
+    </marker>
+  </defs>
+  <rect width="1600" height="1740" fill="#f6f9fc"/>
+  <text x="70" y="68" class="title">Qwen3.5-27B Hybrid Decoder Architecture</text>
+  <text x="70" y="102" class="subtitle">Dense text model | 26,895,998,464 parameters | checkpoint-verified dimensions</text>
+
+  <rect x="70" y="140" width="1460" height="115" class="box" fill="#e7eef8"/>
+  <text x="100" y="180" class="h">Model configuration</text>
+  <text x="100" y="215" class="t">vocab 248,320 | hidden 5,120 | layers 64 | max context 262,144 | BF16 | RMSNorm eps 1e-6</text>
+  <text x="100" y="242" class="t">Layer schedule: [Linear, Linear, Linear, Full] x 16 = 48 Linear Attention + 16 Full Attention</text>
+
+  <rect x="100" y="310" width="410" height="85" class="box" fill="#dcecf9"/>
+  <text x="305" y="345" text-anchor="middle" class="h">Input token IDs</text>
+  <text x="305" y="375" text-anchor="middle" class="mono">[batch, sequence]</text>
+  <path d="M510 353 H600" class="arrow"/>
+  <rect x="600" y="310" width="420" height="85" class="box" fill="#dcecf9"/>
+  <text x="810" y="345" text-anchor="middle" class="h">Token Embedding</text>
+  <text x="810" y="375" text-anchor="middle" class="mono">248,320 x 5,120</text>
+  <path d="M1020 353 H1110" class="arrow"/>
+  <rect x="1110" y="310" width="390" height="85" class="box" fill="#dcecf9"/>
+  <text x="1305" y="345" text-anchor="middle" class="h">Hidden states</text>
+  <text x="1305" y="375" text-anchor="middle" class="mono">[B, T, 5,120]</text>
+
+  <path d="M1305 395 V445 H800 V485" class="arrow"/>
+  <rect x="90" y="485" width="1420" height="970" rx="22" fill="#ffffff" stroke="#23415f" stroke-width="3"/>
+  <text x="120" y="530" class="h">64 Decoder Layers</text>
+  <text x="120" y="560" class="s">Each 4-layer group is repeated 16 times. All layers use the same Dense SwiGLU MLP.</text>
+
+  <rect x="140" y="605" width="1320" height="155" rx="16" fill="#e1f3ed" stroke="#238463" stroke-width="2.5"/>
+  <text x="180" y="645" class="h">Layer 4n + 0: Linear Attention</text>
+  <text x="180" y="680" class="t">Pre-RMSNorm -> Gated DeltaNet -> Residual -> Pre-RMSNorm -> Dense SwiGLU MLP -> Residual</text>
+  <text x="180" y="715" class="mono">GDN: Q/K 16x128, V/Z 48x128, causal depthwise Conv1D(k=4), fixed recurrent state</text>
+  <text x="1340" y="700" text-anchor="end" class="h" fill="#238463">x48 total</text>
+
+  <path d="M800 760 V800" class="arrow"/>
+  <rect x="140" y="800" width="1320" height="155" rx="16" fill="#e1f3ed" stroke="#238463" stroke-width="2.5"/>
+  <text x="180" y="840" class="h">Layer 4n + 1: Linear Attention</text>
+  <text x="180" y="875" class="t">Same Gated DeltaNet block and same Dense SwiGLU MLP</text>
+  <text x="180" y="910" class="mono">No growing KV cache; history is compressed into Conv state + 48x128x128 recurrent state</text>
+
+  <path d="M800 955 V995" class="arrow"/>
+  <rect x="140" y="995" width="1320" height="155" rx="16" fill="#e1f3ed" stroke="#238463" stroke-width="2.5"/>
+  <text x="180" y="1035" class="h">Layer 4n + 2: Linear Attention</text>
+  <text x="180" y="1070" class="t">Same Gated DeltaNet block and same Dense SwiGLU MLP</text>
+  <text x="180" y="1105" class="mono">Linear-time recurrent token mixing</text>
+
+  <path d="M800 1150 V1190" class="arrow"/>
+  <rect x="140" y="1190" width="1320" height="180" rx="16" fill="#fff0dd" stroke="#d47a17" stroke-width="2.5"/>
+  <text x="180" y="1230" class="h">Layer 4n + 3: Full Attention</text>
+  <text x="180" y="1265" class="t">Pre-RMSNorm -> gated causal GQA -> Residual -> Pre-RMSNorm -> Dense SwiGLU MLP -> Residual</text>
+  <text x="180" y="1300" class="mono">24 Q heads x 256 | 4 KV heads x 256 | partial RoPE 64/256 | output sigmoid gate</text>
+  <text x="180" y="1335" class="mono">Exact token-to-token attention; K/V cache grows with sequence length</text>
+  <text x="1340" y="1285" text-anchor="end" class="h" fill="#d47a17">x16 total</text>
+
+  <path d="M1470 1280 H1500 V620 H1470" class="dash"/>
+  <text x="1515" y="950" transform="rotate(90 1515 950)" text-anchor="middle" class="s">repeat this 4-layer group 16 times</text>
+
+  <path d="M800 1370 V1485" class="arrow"/>
+  <rect x="530" y="1485" width="540" height="75" class="box" fill="#e7eef8"/>
+  <text x="800" y="1520" text-anchor="middle" class="h">Final RMSNorm</text>
+  <text x="800" y="1548" text-anchor="middle" class="mono">5,120</text>
+  <path d="M800 1560 V1600" class="arrow"/>
+  <rect x="530" y="1600" width="540" height="85" class="box" fill="#dcecf9"/>
+  <text x="800" y="1635" text-anchor="middle" class="h">Untied LM Head</text>
+  <text x="800" y="1665" text-anchor="middle" class="mono">5,120 -> 248,320 logits</text>
+
+  <rect x="90" y="1480" width="360" height="210" rx="14" fill="#f0f4f8" stroke="#6b7f93" stroke-width="2"/>
+  <text x="120" y="1518" class="h">Common MLP in every layer</text>
+  <text x="120" y="1555" class="mono">gate_proj: 5,120 -> 17,408</text>
+  <text x="120" y="1585" class="mono">up_proj:   5,120 -> 17,408</text>
+  <text x="120" y="1615" class="mono">SiLU(gate) * up</text>
+  <text x="120" y="1645" class="mono">down_proj: 17,408 -> 5,120</text>
+  <text x="120" y="1675" class="s">267,386,880 parameters per layer</text>
+
+  <rect x="1150" y="1480" width="360" height="210" rx="14" fill="#f0f4f8" stroke="#6b7f93" stroke-width="2"/>
+  <text x="1180" y="1518" class="h">Why hybrid?</text>
+  <text x="1180" y="1555" class="t">Linear layers:</text>
+  <text x="1180" y="1582" class="s">fixed-size recurrent memory</text>
+  <text x="1180" y="1615" class="t">Full layers:</text>
+  <text x="1180" y="1642" class="s">exact global token interaction</text>
+  <text x="1180" y="1675" class="s">Ratio = 3 Linear : 1 Full</text>
+</svg>

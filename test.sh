@@ -42,60 +42,66 @@ run_many() {
   done
 }
 
-# hif4-1 权重 + hif4-1 激活
+# hif4 权重 + hif4-1 激活
 run_many \
-  /home/shaoyuantian/program/HiF4_Sp/Qmodel/Qwen3.5-27B-HiF4-1-RTN \
+  /home/shaoyuantian/program/HiF4_Sp/Qmodel/Qwen3.5-27B-HiF4-RTN \
   ./results/hif4_1 \
   hif4-1 \
   none
 
-# hif4-1 权重 + hif4-1 激活 + hif4-1 KV cache
-run_many \
-  /home/shaoyuantian/program/HiF4_Sp/Qmodel/Qwen3.5-27B-HiF4-1-RTN \
-  ./results/hif4_1_kv \
-  hif4-1 \
-  hif4-1
+# # hif4-1 权重 + hif4-1 激活 + hif4-1 KV cache
+# run_many \
+#   /home/shaoyuantian/program/HiF4_Sp/Qmodel/Qwen3.5-27B-HiF4-1-RTN \
+#   ./results/hif4_1_kv \
+#   hif4-1 \
+#   hif4-1
 
-# NVFP4-BF16 -> hif4 RTN 权重 + hif4 激活
-run_many \
-  /home/shaoyuantian/program/HiF4_Sp/Qmodel/Qwen3.5-27B-NVFP4-BF16-HiF4-RTN \
-  ./results/nvfp4_bf16_hif4 \
-  hif4 \
-  none
+# # NVFP4-BF16 -> hif4-1 RTN 权重 + hif4-1 激活
+# run_many \
+#   /home/shaoyuantian/program/HiF4_Sp/Qmodel/Qwen3.5-27B-NVFP4-BF16-HiF4-1-RTN \
+#   ./results/nvfp4_bf16_hif4_1 \
+#   hif4-1 \
+#   none
 
-# NVFP4-BF16 -> hif4 RTN 权重 + hif4 激活 + hif4 KV cache
-run_many \
-  /home/shaoyuantian/program/HiF4_Sp/Qmodel/Qwen3.5-27B-NVFP4-BF16-HiF4-RTN \
-  ./results/nvfp4_bf16_hif4_kv \
-  hif4 \
-  hif4
+# # NVFP4-BF16 -> hif4-1 RTN 权重 + hif4-1 激活 + hif4-1 KV cache
+# run_many \
+#   /home/shaoyuantian/program/HiF4_Sp/Qmodel/Qwen3.5-27B-NVFP4-BF16-HiF4-1-RTN \
+#   ./results/nvfp4_bf16_hif4_1_kv \
+#   hif4-1 \
+#   hif4-1
   
-# hif4-1 GPTQ 权重 + hif4-1 激活
-run_many \
-  /home/shaoyuantian/program/HiF4_Sp/Qmodel/Qwen3.5-27B-HiF4-1-GPTQ \
-  ./results/hif4_1 \
-  hif4-1 \
-  none
+# # hif4-1 GPTQ 权重 + hif4-1 激活
+# run_many \
+#   /home/shaoyuantian/program/HiF4_Sp/Qmodel/Qwen3.5-27B-HiF4-1-GPTQ \
+#   ./results/hif4_1 \
+#   hif4-1 \
+#   none
 
-# hif4-1 GPTQ 权重 + hif4-1 激活 + hif4-1 KV cache
-run_many \
-  /home/shaoyuantian/program/HiF4_Sp/Qmodel/Qwen3.5-27B-HiF4-1-GPTQ \
-  ./results/hif4_1_kv \
-  hif4-1 \
-  hif4-1
+# # hif4-1 GPTQ 权重 + hif4-1 激活 + hif4-1 KV cache
+# run_many \
+#   /home/shaoyuantian/program/HiF4_Sp/Qmodel/Qwen3.5-27B-HiF4-1-GPTQ \
+#   ./results/hif4_1_kv \
+#   hif4-1 \
+#   hif4-1
 
-# NVFP4-BF16 -> hif4 GPTQ 权重 + hif4 激活
-run_many \
-  /home/shaoyuantian/program/HiF4_Sp/Qmodel/Qwen3.5-27B-NVFP4-BF16-HiF4-GPTQ \
-  ./results/nvfp4_bf16_hif4 \
-  hif4 \
-  none
+# # NVFP4-BF16 -> hif4-1 GPTQ 权重 + hif4-1 激活
+# run_many \
+#   /home/shaoyuantian/program/HiF4_Sp/Qmodel/Qwen3.5-27B-NVFP4-BF16-HiF4-1-GPTQ \
+#   ./results/nvfp4_bf16_hif4_1 \
+#   hif4-1 \
+#   none
 
-# NVFP4-BF16 -> hif4 GPTQ 权重 + hif4 激活 + hif4 KV cache
-run_many \
-  /home/shaoyuantian/program/HiF4_Sp/Qmodel/Qwen3.5-27B-NVFP4-BF16-HiF4-GPTQ \
-  ./results/nvfp4_bf16_hif4_kv \
-  hif4 \
-  hif4
+# # NVFP4-BF16 -> hif4-1 GPTQ 权重 + hif4-1 激活 + hif4-1 KV cache
+# run_many \
+#   /home/shaoyuantian/program/HiF4_Sp/Qmodel/Qwen3.5-27B-NVFP4-BF16-HiF4-1-GPTQ \
+#   ./results/nvfp4_bf16_hif4_1_kv \
+#   hif4-1 \
+#   hif4-1
+
+# run_many \
+#   /home/shaoyuantian/program/HiF4_Sp/Qmodel/Qwen3.5-27B-HiF4-RTN \
+#   ./results/hif4_kv \
+#   hif4 \
+#   hif4
 
 # mmlu_pro,gpqa:diamond,math_500,aime24_avg,aime25_avg,lcb:codegeneration_v6,ifeval,musr,hellaswag_fixed,winogrande

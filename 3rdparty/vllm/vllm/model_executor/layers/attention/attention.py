@@ -724,7 +724,9 @@ def unified_kv_cache_update(
             kv_cache,
             layer_slot_mapping,
         )
-        if kv_quant_config is not None and kv_quant_config.format == "nvfp4":
+        if kv_quant_config is not None and (
+            kv_quant_config.format == "nvfp4" or kv_quant_config.recent_size > 0
+        ):
             if attn_layer.kv_cache_dtype.startswith("fp8"):
                 raise ValueError(
                     "KV fake quant does not support fp8 kv_cache_dtype."
