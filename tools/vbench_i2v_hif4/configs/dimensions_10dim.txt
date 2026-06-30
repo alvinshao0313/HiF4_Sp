@@ -1,0 +1,10 @@
+i2v_subject
+i2v_background
+camera_motion
+subject_consistency
+background_consistency
+temporal_flickering
+motion_smoothness
+dynamic_degree
+aesthetic_quality
+imaging_quality

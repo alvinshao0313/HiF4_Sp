@@ -1,0 +1,7 @@
+# 本文件是示例配置。所有路径都应改成你的本机绝对路径或仓库相对路径。
+vbench_root: /path/to/vbench2_beta_i2v
+full_info_json: /path/to/vbench2_beta_i2v/vbench2_i2v_full_info.json
+image_folder: /path/to/vbench2_beta_i2v/data/crop/16-9
+model_root: /path/to/VBench/models
+scratch_dir: .scratch_vbench_i2v
+copy_mode: physical

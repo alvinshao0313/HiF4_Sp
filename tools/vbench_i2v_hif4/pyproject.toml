@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hif4-vbench-i2v"
+version = "0.1.0"
+description = "HiF4/Wan 视频生成结果的 VBench-I2V 兼容评测工具包"
+readme = "README_zh.md"
+requires-python = ">=3.9"
+authors = [{name = "HiF4 VBench Compatibility Toolkit"}]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["hif4_vbench_i2v*"]

@@ -1,0 +1,18 @@
+# 这些版本是经验兼容参考；实际可根据原仓库 torch/CUDA 版本调整。
+# 建议先在独立 vbench 环境中安装，确认稳定后再尝试 strict same-env。
+vbench
+vbench2-beta-i2v; python_version >= "3.9"
+dreamsim==0.2.1
+timm==1.0.12
+open-clip-torch==2.24.0
+transformers==4.33.2
+peft==0.5.0
+decord
+opencv-python
+Pillow
+setuptools
+packaging
+numpy
+pandas
+PyYAML
+sentencepiece

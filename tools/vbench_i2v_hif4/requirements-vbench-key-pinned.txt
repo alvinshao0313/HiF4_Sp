@@ -1,0 +1,19 @@
+torch==2.7.1+cu118
+torchvision==0.22.1+cu118
+# MISSING_OR_UNVERSIONED: torchaudio
+vbench==0.1.5
+dreamsim==0.2.1
+timm==1.0.12
+open-clip-torch==2.24.0
+decord==0.6.0
+opencv-python==4.11.0.86
+Pillow==12.2.0
+numpy==1.26.4
+scipy==1.11.4
+scikit-image==0.25.2
+transformers==4.33.2
+peft==0.5.0
+accelerate==1.14.0
+einops==0.8.2
+packaging==26.2
+setuptools==70.3.0
