@@ -3,8 +3,8 @@ set -euo pipefail
 
 cd /home/shaoyuantian/program/HiF4_Sp
 
-GPUS="${GPUS:-4,5,6,7}"
-REPEATS="${REPEATS:-5}"
+GPUS="${GPUS:-0,1,2,3}"
+REPEATS="${REPEATS:-2}"
 
 COMMON_ARGS=(
   --datasets aime25
@@ -44,9 +44,9 @@ run_many() {
 
 # hif4 权重 + hif4-1 激活
 run_many \
-  /home/shaoyuantian/program/HiF4_Sp/Qmodel/Qwen3.5-27B-HiF4-RTN \
-  ./results/hif4_1 \
-  hif4-1 \
+  Qwen/Qwen3.5-27B \
+  ./results/ \
+  hif4 \
   none
 
 # # hif4-1 权重 + hif4-1 激活 + hif4-1 KV cache
