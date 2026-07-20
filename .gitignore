@@ -44,6 +44,7 @@ HiFloat4/hif4gptq_logs/
 *.mkv
 *.mov
 *.avi
+*.csv
 HiFloat4/datasets/
 
 # Logs
@@ -58,4 +59,8 @@ wandb/
 # Local Codex / agent state
 .codex
 .codex/
-./AGENTS.md
+AGENTS.md
+Block_Sparse/outputs/
+Block_Sparse/experiments/
+Block_Sparse/outputs/
+Block_Sparse/tests/

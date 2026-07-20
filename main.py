@@ -293,6 +293,12 @@ def parse_args():
         help="加载 lighteval 多语言任务注册表（含 ceval/cmmlu/agieval 等）。评 C-Eval 等时必须加此选项，与官方 CLI 的 --load-tasks-multilingual 一致",
     )
     parser.add_argument(
+        "--disable_thinking",
+        action="store_true",
+        help="关闭 Qwen 等模型的 thinking/reasoning（apply_chat_template enable_thinking=False）。"
+             "MMLU 等短答案选择题应开启，避免模型只输出思考过程导致 exact match 全 0。",
+    )
+    parser.add_argument(
         "--enforce_eager",
         action="store_true",
         help="传给 vLLM：enforce_eager=True（关闭 CUDAGraph 等，便于排错但更慢）。默认 False，与 vLLM 一致。"
@@ -475,6 +481,8 @@ def main():
         if args.data_parallel_size < 1:
             raise ValueError("--data_parallel_size 须为 >= 1 的整数")
         vllm_model_kwargs["data_parallel_size"] = args.data_parallel_size
+    if args.disable_thinking:
+        vllm_model_kwargs["enable_thinking"] = False
     model_config = VLLMModelConfig(**vllm_model_kwargs)
 
     pipeline = Pipeline(

@@ -188,6 +188,9 @@ class VLLMModelConfig(ModelConfig):
     subfolder: str | None = None
     is_async: bool = False  # Whether to use the async version or sync version of the model
     override_chat_template: bool = None
+    # [Block_Sparse] Pass through to PromptManager / apply_chat_template (Qwen thinking).
+    # None keeps tokenizer template default; False forces direct answer (no reasoning).
+    enable_thinking: bool | None = None
 
 
 @requires("vllm")
@@ -222,7 +225,12 @@ class VLLMModel(LightevalModel):
 
         self.pairwise_tokenization = config.pairwise_tokenization
 
-        self.prompt_manager = PromptManager(self.use_chat_template, self.tokenizer, config.system_prompt)
+        self.prompt_manager = PromptManager(
+            self.use_chat_template,
+            self.tokenizer,
+            config.system_prompt,
+            enable_thinking=config.enable_thinking,
+        )
 
         # Initialize cache for tokenization and predictions
         self._cache = SampleCache(config)
