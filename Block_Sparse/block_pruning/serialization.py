@@ -11,6 +11,7 @@ from torch import nn
 from block_pruning.config import GradientBlockPruningConfig
 from block_pruning.gradient_scorer import BlockScoreRecord
 from block_pruning.mask_allocator import MaskAllocationResult
+from block_pruning.mlp_permutation import MLPIntermediatePermutationRecord
 from block_pruning.mlp_registry import MLPLinearTarget
 
 
@@ -61,6 +62,7 @@ def build_pruning_summary(
         "score_type": config.score_type,
         "selection_mode": config.selection_mode,
         "share_up_gate_mask": config.share_up_gate_mask,
+        "mlp_permutation": config.mlp_permutation,
         "max_prune_ratio_per_matrix": config.max_prune_ratio_per_matrix,
         "min_keep_blocks_per_matrix": config.min_keep_blocks_per_matrix,
         "calibration_dataset": config.calibration_dataset,
@@ -155,6 +157,46 @@ def save_pruned_model(
     model.save_pretrained(out, safe_serialization=True)
     tokenizer.save_pretrained(out)
     return out
+
+
+def save_mlp_permutation_artifacts(
+    output_dir: str | Path,
+    records: dict[int, MLPIntermediatePermutationRecord],
+    config: GradientBlockPruningConfig,
+) -> None:
+    """Save one-time MLP intermediate permutation artifacts."""
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    payload: dict[str, Any] = {}
+    for layer_index in sorted(records):
+        rec = records[layer_index]
+        payload[str(layer_index)] = {
+            "layer_index": rec.layer_index,
+            "gate_module_name": rec.gate_module_name,
+            "up_module_name": rec.up_module_name,
+            "down_module_name": rec.down_module_name,
+            "intermediate_size": rec.intermediate_size,
+            "combined_score": rec.combined_score.cpu().clone(),
+            "permutation": rec.permutation.cpu().clone(),
+            "inverse_permutation": rec.inverse_permutation.cpu().clone(),
+        }
+    torch.save(payload, output_dir / "mlp_permutations.pt")
+
+    summary = {
+        "permutation_type": config.mlp_permutation,
+        "permutation_axis": "mlp_intermediate_dimension",
+        "up_mapping": "row",
+        "gate_mapping": "row",
+        "down_mapping": "column",
+        "projection_normalization": "l1_equal_projection",
+        "applied_once_before_pruning": True,
+        "export_coordinate_system": "permuted",
+        "num_layers": len(records),
+        "mlp_permutation": config.mlp_permutation,
+        "permutation_applied_before_pruning": True,
+    }
+    save_pruning_summary(summary, output_dir / "mlp_permutation_summary.json")
 
 
 def save_round_artifacts(

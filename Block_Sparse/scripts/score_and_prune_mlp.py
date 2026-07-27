@@ -29,10 +29,12 @@ from block_pruning.mask_allocator import (  # noqa: E402
     extract_module_prune_budgets,
 )
 from block_pruning.mask_apply import apply_mlp_block_masks, verify_masks_and_weights  # noqa: E402
+from block_pruning.mlp_permutation import prepare_and_apply_mlp_permutations  # noqa: E402
 from block_pruning.mlp_registry import collect_mlp_linears, initialize_all_one_masks  # noqa: E402
 from block_pruning.model_loader import load_model_and_tokenizer  # noqa: E402
 from block_pruning.serialization import (  # noqa: E402
     save_hybrid_round_artifacts,
+    save_mlp_permutation_artifacts,
     save_pruned_model,
     save_round_artifacts,
 )
@@ -91,6 +93,14 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max_prune_ratio_per_matrix", type=float, default=0.60)
     p.add_argument("--min_keep_blocks_per_matrix", type=int, default=1)
     p.add_argument("--share_up_gate_mask", action="store_true")
+    p.add_argument(
+        "--mlp_permutation",
+        type=str,
+        default="none",
+        choices=["none", "wanda_shared"],
+        help="none | wanda_shared: one-time shared Wanda sort of FFN intermediate "
+        "dim before mask init (up/gate rows + matching down cols).",
+    )
     p.add_argument("--pruning_rounds", type=int, default=1)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument(
@@ -120,6 +130,7 @@ def args_to_config(args: argparse.Namespace) -> GradientBlockPruningConfig:
         min_keep_blocks_per_matrix=args.min_keep_blocks_per_matrix,
         share_up_gate_mask=bool(args.share_up_gate_mask),
         pruning_rounds=args.pruning_rounds,
+        mlp_permutation=args.mlp_permutation,
         seed=args.seed,
         dtype=args.dtype,
         device=args.device,
@@ -173,12 +184,13 @@ def allocate_hybrid_round(
     if batches is None:
         raise ValueError("fisher_budget_wanda requires calibration batches")
 
-    fisher_records = collect_mlp_block_scores(
+    fisher_records, input_rms_records = collect_mlp_block_scores(
         model=model,
         batches=batches,
         targets=targets,
         config=config,
         current_masks=current_masks,
+        collect_input_rms=True,
     )
     fisher_reference_allocation = allocate_block_masks(
         score_records=fisher_records,
@@ -199,10 +211,11 @@ def allocate_hybrid_round(
 
     wanda_records = collect_wanda_block_scores(
         model=model,
-        batches=batches,
+        batches=None,
         targets=targets,
         config=config,
         current_masks=current_masks,
+        input_rms_records=input_rms_records,
     )
     final_allocation = allocate_masks_by_module_budget(
         score_records=wanda_records,
@@ -274,14 +287,33 @@ def main() -> None:
             seed=config.seed,
         )
 
+    artifacts_dir = output_dir / "pruning_artifacts"
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+
+    if config.mlp_permutation == "wanda_shared":
+        print("[prune] applying shared Wanda MLP intermediate permutation", flush=True)
+        permutation_records = prepare_and_apply_mlp_permutations(
+            model=model,
+            batches=batches,
+            targets=targets,
+            config=config,
+        )
+        save_mlp_permutation_artifacts(
+            output_dir=artifacts_dir,
+            records=permutation_records,
+            config=config,
+        )
+        print(
+            f"[prune] permutation applied to {len(permutation_records)} MLP layers",
+            flush=True,
+        )
+
     current_masks = initialize_all_one_masks(
         targets, config.block_height, config.block_width
     )
     allocation = None
     score_records = None
     hybrid_state = None
-    artifacts_dir = output_dir / "pruning_artifacts"
-    artifacts_dir.mkdir(parents=True, exist_ok=True)
 
     for round_idx in range(config.pruning_rounds):
         cumulative_target = (

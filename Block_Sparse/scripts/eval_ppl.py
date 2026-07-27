@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 
 import torch
+from tqdm import tqdm
 
 BLOCK_SPARSE_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = BLOCK_SPARSE_ROOT.parent
@@ -96,7 +97,8 @@ def evaluate_ppl(
     tok_sum = 0
     t0 = time.time()
 
-    for i, batch in enumerate(windows):
+    pbar = tqdm(windows, desc="[ppl]", unit="window")
+    for batch in pbar:
         batch = batch.to(device)
         out = model(input_ids=batch, use_cache=False)
         logits = out.logits[:, :-1, :].float()
@@ -108,12 +110,8 @@ def evaluate_ppl(
         )
         nll_sum += float(loss.item())
         tok_sum += int(labels.numel())
-        if (i + 1) % 10 == 0 or (i + 1) == len(windows):
-            print(
-                f"[ppl] window {i + 1}/{len(windows)} "
-                f"running_ppl={torch.exp(torch.tensor(nll_sum / tok_sum)).item():.4f}",
-                flush=True,
-            )
+        running_ppl = float(torch.exp(torch.tensor(nll_sum / tok_sum)).item())
+        pbar.set_postfix(ppl=f"{running_ppl:.4f}")
 
     mean_nll = nll_sum / tok_sum
     ppl = float(torch.exp(torch.tensor(mean_nll)).item())

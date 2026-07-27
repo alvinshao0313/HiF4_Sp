@@ -76,7 +76,9 @@ def reduce_weight_wanda_to_blocks(
     validate_weight_divisible(weight, block_height, block_width)
 
     d_out, d_in = weight.shape
-    element_score = weight.float().abs() * input_rms.float().unsqueeze(0)
+    # RMS is collected on CPU; weights may live on CUDA under device_map.
+    rms = input_rms.to(device=weight.device, dtype=torch.float32)
+    element_score = weight.float().abs() * rms.unsqueeze(0)
     return element_score.reshape(
         d_out // block_height,
         block_height,

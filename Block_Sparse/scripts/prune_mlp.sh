@@ -22,15 +22,17 @@ SEQ_LEN=0               # 0=不截断（s1k 完整样本）；wiki/c4/ptb 需正
 SEED=42
 DTYPE=bfloat16
 DEVICE=cuda
+MLP_PERMUTATION=none   # none | wanda_shared
 # 多卡示例：CUDA_VISIBLE_DEVICES=6,7 bash ... （可见卡上自动 device_map=auto）
 # CUDA_VISIBLE_DEVICES 由调用方导出；此处不改写
 
-OUTPUT_DIR=./Block_Sparse/outputs/qwen35_27b_${SCORE_TYPE}_s${SPARSITY}_b${BLOCK_SIZE}_${CALIBRATION_DATASET}
+OUTPUT_DIR=./Block_Sparse/outputs/qwen35_27b_${SCORE_TYPE}_s${SPARSITY}_b${BLOCK_SIZE}_${CALIBRATION_DATASET}_perm${MLP_PERMUTATION}
 # ---------------------------------------------------------------------------
 
 echo "[prune_mlp] model=${MODEL_PATH}"
 echo "[prune_mlp] score_type=${SCORE_TYPE} sparsity=${SPARSITY} block_size=${BLOCK_SIZE}"
 echo "[prune_mlp] calib=${CALIBRATION_DATASET} n=${CALIB_SAMPLES} seq=${SEQ_LEN}"
+echo "[prune_mlp] mlp_permutation=${MLP_PERMUTATION}"
 echo "[prune_mlp] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-<unset>} output=${OUTPUT_DIR}"
 
 python Block_Sparse/scripts/score_and_prune_mlp.py \
@@ -44,6 +46,7 @@ python Block_Sparse/scripts/score_and_prune_mlp.py \
   --sequence_length "${SEQ_LEN}" \
   --seed "${SEED}" \
   --dtype "${DTYPE}" \
-  --device "${DEVICE}"
+  --device "${DEVICE}" \
+  --mlp_permutation "${MLP_PERMUTATION}"
 
 echo "[prune_mlp] done: ${OUTPUT_DIR}"

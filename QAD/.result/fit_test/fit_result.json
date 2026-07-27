@@ -1,0 +1,8 @@
+{
+  "ok": false,
+  "mode": "fsdp",
+  "fallback": null,
+  "reason": "fsdp_failed_non_oom",
+  "rc": 1,
+  "log": "/home/shaoyuantian/program/HiF4_Sp/QAD/.result/fit_test/fsdp.log"
+}

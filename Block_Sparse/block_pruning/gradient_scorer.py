@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 import torch
 import torch.nn as nn
+from tqdm import tqdm
 
 from block_pruning.block_utils import (
     block_grid_shape,
@@ -14,7 +15,6 @@ from block_pruning.calibration import move_batch_to_device
 from block_pruning.config import GradientBlockPruningConfig
 from block_pruning.mlp_registry import MLPLinearTarget
 from block_pruning.model_loader import resolve_model_input_device
-
 
 @dataclass
 class BlockScoreRecord:
@@ -55,6 +55,22 @@ def freeze_all_parameters(model: nn.Module) -> None:
 def enable_mlp_weight_grads(targets: list[MLPLinearTarget]) -> None:
     for target in targets:
         target.module.weight.requires_grad_(True)
+
+
+def _prepare_model_for_fisher_scoring(
+    model: nn.Module, gradient_checkpointing: bool
+) -> None:
+    """Set forward mode for Fisher. HF checkpointing only runs when training=True."""
+    if hasattr(model, "config"):
+        model.config.use_cache = False
+    if not gradient_checkpointing:
+        model.eval()
+        return
+    # GradientCheckpointingLayer gates on `self.training`; eval() silently disables it.
+    model.train()
+    for module in model.modules():
+        if isinstance(module, nn.Dropout):
+            module.eval()
 
 
 def _empty_accumulators(
@@ -178,12 +194,17 @@ def collect_mlp_block_scores(
     targets: list[MLPLinearTarget],
     config: GradientBlockPruningConfig,
     current_masks: dict[str, torch.Tensor] | None = None,
-) -> dict[str, BlockScoreRecord]:
+    collect_input_rms: bool = False,
+):
     """Collect Block Empirical Fisher scores from causal LM loss gradients.
 
     One full forward/backward per calibration batch. MLP weight grads are reduced
     to block scores and moved to CPU inside post-accumulate hooks, then freed so
     all-layer grads never reside on GPU at once.
+
+    If ``collect_input_rms`` is True, also accumulate MLP input-channel RMS during
+    the same forward (for Block-Wanda without a second calibration pass) and
+    return ``(fisher_records, input_rms_records)``.
     """
     if config.score_batch_size != 1:
         raise ValueError("score_batch_size must be 1")
@@ -198,50 +219,68 @@ def collect_mlp_block_scores(
 
     freeze_all_parameters(model)
     enable_mlp_weight_grads(targets)
-    model.eval()
-    if hasattr(model, "config"):
-        model.config.use_cache = False
+    _prepare_model_for_fisher_scoring(model, config.gradient_checkpointing)
 
     accumulators = _empty_accumulators(targets, h, w)
     device = resolve_model_input_device(model)
     num_batches = 0
     expected = {t.module_name for t in targets}
 
-    for batch in batches:
-        model.zero_grad(set_to_none=True)
-        batch_dev = move_batch_to_device(batch, device)
-        seen: set[str] = set()
-        handles = _register_fisher_grad_offload_hooks(
-            targets, h, w, current_masks, accumulators, seen
+    rms_accumulators = None
+    rms_handles: list = []
+    if collect_input_rms:
+        from block_pruning.wanda_scorer import (
+            finalize_mlp_input_rms_records,
+            register_mlp_input_rms_hooks,
         )
-        try:
-            with torch.autocast(
-                device_type=device.type if isinstance(device, torch.device) else "cuda",
-                dtype=torch.bfloat16 if config.dtype == "bfloat16" else torch.float16,
-                enabled=device.type == "cuda" or str(device).startswith("cuda"),
-            ):
-                outputs = model(
-                    input_ids=batch_dev["input_ids"],
-                    attention_mask=batch_dev["attention_mask"],
-                    labels=batch_dev["labels"],
-                    use_cache=False,
-                )
-                loss = outputs.loss
 
-            if loss is None:
-                raise RuntimeError("Model returned loss=None; labels may be missing")
-            loss.backward()
-        finally:
-            for handle in handles:
-                handle.remove()
+        rms_accumulators, rms_handles = register_mlp_input_rms_hooks(targets)
 
-        missing = expected - seen
-        if missing:
-            raise RuntimeError(
-                "No gradient received via offload hooks for modules: "
-                + ", ".join(sorted(missing))
+    desc = "[prune] fisher+rms" if collect_input_rms else "[prune] fisher"
+    try:
+        pbar = tqdm(batches, desc=desc, unit="batch")
+        for batch in pbar:
+            model.zero_grad(set_to_none=True)
+            batch_dev = move_batch_to_device(batch, device)
+            seq_len = int(batch_dev["input_ids"].shape[-1])
+            pbar.set_postfix(seq=seq_len)
+            seen: set[str] = set()
+            handles = _register_fisher_grad_offload_hooks(
+                targets, h, w, current_masks, accumulators, seen
             )
-        num_batches += 1
+            try:
+                with torch.autocast(
+                    device_type=device.type if isinstance(device, torch.device) else "cuda",
+                    dtype=torch.bfloat16 if config.dtype == "bfloat16" else torch.float16,
+                    enabled=device.type == "cuda" or str(device).startswith("cuda"),
+                ):
+                    outputs = model(
+                        input_ids=batch_dev["input_ids"],
+                        attention_mask=batch_dev["attention_mask"],
+                        labels=batch_dev["labels"],
+                        use_cache=False,
+                    )
+                    loss = outputs.loss
+
+                if loss is None:
+                    raise RuntimeError("Model returned loss=None; labels may be missing")
+                loss.backward()
+            finally:
+                for handle in handles:
+                    handle.remove()
+
+            missing = expected - seen
+            if missing:
+                raise RuntimeError(
+                    "No gradient received via offload hooks for modules: "
+                    + ", ".join(sorted(missing))
+                )
+            num_batches += 1
+            if device.type == "cuda":
+                torch.cuda.empty_cache()
+    finally:
+        for handle in rms_handles:
+            handle.remove()
 
     if num_batches == 0:
         raise RuntimeError("No calibration batches were processed")
@@ -260,6 +299,11 @@ def collect_mlp_block_scores(
 
     model.zero_grad(set_to_none=True)
     freeze_all_parameters(model)
+    model.eval()
+
+    if collect_input_rms:
+        assert rms_accumulators is not None
+        return records, finalize_mlp_input_rms_records(targets, rms_accumulators)
     return records
 
 

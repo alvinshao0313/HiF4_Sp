@@ -1,9 +1,11 @@
+"""Block-Wanda scoring and MLP input-channel RMS collection."""
 from __future__ import annotations
 
 from dataclasses import dataclass
 
 import torch
 import torch.nn as nn
+from tqdm import tqdm
 
 from block_pruning.block_utils import reduce_weight_wanda_to_blocks
 from block_pruning.calibration import move_batch_to_device
@@ -49,22 +51,12 @@ def _make_rms_hook(
     return hook
 
 
-def collect_mlp_input_rms(
-    model: nn.Module,
-    batches: list[dict[str, torch.Tensor]],
+def register_mlp_input_rms_hooks(
     targets: list[MLPLinearTarget],
-) -> dict[str, InputRMSRecord]:
-    """Collect per-module input-channel RMS via forward_pre_hook."""
-    if not batches:
-        raise ValueError("calibration batches is empty")
+) -> tuple[dict[str, dict], list]:
+    """Register forward_pre_hooks; caller must remove handles when done."""
     if not targets:
         raise ValueError("targets is empty")
-
-    device = resolve_model_input_device(model)
-    model.eval()
-    if hasattr(model, "config"):
-        model.config.use_cache = False
-
     accumulators: dict[str, dict] = {}
     handles = []
     for target in targets:
@@ -81,20 +73,13 @@ def collect_mlp_input_rms(
                 _make_rms_hook(target.module_name, d_in, accumulators)
             )
         )
+    return accumulators, handles
 
-    try:
-        with torch.no_grad():
-            for batch in batches:
-                batch_dev = move_batch_to_device(batch, device)
-                model(
-                    input_ids=batch_dev["input_ids"],
-                    attention_mask=batch_dev["attention_mask"],
-                    use_cache=False,
-                )
-    finally:
-        for handle in handles:
-            handle.remove()
 
+def finalize_mlp_input_rms_records(
+    targets: list[MLPLinearTarget],
+    accumulators: dict[str, dict],
+) -> dict[str, InputRMSRecord]:
     records: dict[str, InputRMSRecord] = {}
     for target in targets:
         name = target.module_name
@@ -117,21 +102,75 @@ def collect_mlp_input_rms(
     return records
 
 
-def collect_wanda_block_scores(
+def collect_mlp_input_rms(
     model: nn.Module,
     batches: list[dict[str, torch.Tensor]],
     targets: list[MLPLinearTarget],
+    progress_desc: str = "[prune] wanda rms",
+) -> dict[str, InputRMSRecord]:
+    """Collect per-module input-channel RMS via forward_pre_hook."""
+    if not batches:
+        raise ValueError("calibration batches is empty")
+
+    device = resolve_model_input_device(model)
+    model.eval()
+    if hasattr(model, "config"):
+        model.config.use_cache = False
+
+    accumulators, handles = register_mlp_input_rms_hooks(targets)
+    try:
+        with torch.no_grad():
+            pbar = tqdm(batches, desc=progress_desc, unit="batch")
+            for batch in pbar:
+                batch_dev = move_batch_to_device(batch, device)
+                seq_len = int(batch_dev["input_ids"].shape[-1])
+                pbar.set_postfix(seq=seq_len)
+                model(
+                    input_ids=batch_dev["input_ids"],
+                    attention_mask=batch_dev["attention_mask"],
+                    use_cache=False,
+                )
+    finally:
+        for handle in handles:
+            handle.remove()
+
+    return finalize_mlp_input_rms_records(targets, accumulators)
+
+
+def collect_wanda_block_scores(
+    model: nn.Module,
+    batches: list[dict[str, torch.Tensor]] | None,
+    targets: list[MLPLinearTarget],
     config: GradientBlockPruningConfig,
     current_masks: dict[str, torch.Tensor] | None = None,
+    input_rms_records: dict[str, InputRMSRecord] | None = None,
 ) -> dict[str, BlockScoreRecord]:
-    """Collect Block-Wanda scores for each MLP Linear target."""
+    """Collect Block-Wanda scores for each MLP Linear target.
+
+    If ``input_rms_records`` is provided (e.g. from a joint Fisher forward),
+    skips a separate RMS calibration pass.
+    """
     h, w = config.block_height, config.block_width
     if current_masks is None:
         from block_pruning.mlp_registry import initialize_all_one_masks
 
         current_masks = initialize_all_one_masks(targets, h, w)
 
-    rms_records = collect_mlp_input_rms(model, batches, targets)
+    if input_rms_records is None:
+        if not batches:
+            raise ValueError(
+                "collect_wanda_block_scores requires batches when "
+                "input_rms_records is not provided"
+            )
+        rms_records = collect_mlp_input_rms(model, batches, targets)
+    else:
+        missing = [t.module_name for t in targets if t.module_name not in input_rms_records]
+        if missing:
+            raise KeyError(
+                "input_rms_records missing modules: " + ", ".join(sorted(missing))
+            )
+        rms_records = input_rms_records
+
     records: dict[str, BlockScoreRecord] = {}
     for target in targets:
         name = target.module_name

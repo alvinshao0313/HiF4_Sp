@@ -21,7 +21,8 @@ Block_Sparse/
 │   └── run_baselines.sh         # fisher/magnitude/random/fisher_budget_wanda 批跑 + 评测
 ├── tests/                  # 单元测试
 ├── experiments/
-│   └── wikitext2_calib/    # WikiText-2 校准阶段归档（ckpt + 评测 + report.html）
+│   ├── wikitext2_calib/    # WikiText-2 校准阶段归档（ckpt + 评测 + report.html）
+│   └── s1k_calib/          # s1K 校准评测归档（ppl/lm_eval 日志；ckpt 仍在 outputs/）
 ├── outputs/                # 新实验剪枝模型（tag 含校准集后缀，如 _s1k）
 └── results/                # 新实验评测结果
 ```
@@ -35,6 +36,8 @@ Block_Sparse/
 | `output_dir/pruning_artifacts/block_masks.pt` | 块 mask（`True`=保留，`False`=已剪） |
 | `output_dir/pruning_artifacts/pruning_summary.json` | 稀疏率、配置摘要 |
 | `output_dir/pruning_artifacts/per_matrix_report.csv` | 逐矩阵稀疏率与 score 统计 |
+| `output_dir/pruning_artifacts/mlp_permutations.pt` | （仅 `wanda_shared`）中间维置换与分数 |
+| `output_dir/pruning_artifacts/mlp_permutation_summary.json` | （仅 `wanda_shared`）置换元信息 |
 
 `fisher_budget_wanda` 额外产物：
 
@@ -67,6 +70,7 @@ bash Block_Sparse/scripts/prune_mlp.sh
 | `CALIBRATION_DATASET` | `s1k` / `wikitext2` / `c4` / `ptb`（`fisher` / `fisher_budget_wanda`） |
 | `CALIB_SAMPLES` / `SEQ_LEN` / `SEED` / `DTYPE` | 校准与精度；`SEQ_LEN=0` 表示 s1k 不截断 |
 | `OUTPUT_DIR` | 剪枝输出目录 |
+| `MLP_PERMUTATION` | `none` / `wanda_shared`：剪枝前是否做 FFN 中间维共享 Wanda 重排 |
 
 ### `--block_size` / `BLOCK_SIZE` 写法（一个参数控制长宽）
 
@@ -117,6 +121,7 @@ python Block_Sparse/scripts/score_and_prune_mlp.py \
 | `--max_prune_ratio_per_matrix` | `0.60` | 单个 Linear 最多可剪掉的块比例上限，防止某层被剪空 |
 | `--min_keep_blocks_per_matrix` | `1` | 每个矩阵至少保留的块数 |
 | `--share_up_gate_mask` | 默认关闭 | 打开后同层 `up`/`gate` 共享同一二维块坐标（联合分数）；默认各自独立 |
+| `--mlp_permutation` | `none` | `none` / `wanda_shared`：剪枝前一次性共享 Wanda 重排 FFN 中间维 |
 | `--pruning_rounds` | `1` | 剪枝轮数；`>1` 时按 `ρ·r/R` 增量剪并每轮重打分 |
 | `--seed` | `42` | 随机种子（校准抽样、`random` 基线） |
 | `--dtype` | `bfloat16` | 加载权重精度：`bfloat16` / `float16` / `float32` |
@@ -157,6 +162,31 @@ methods: magnitude / fisher / fisher_budget_wanda
 ```
 
 开启方式：`--score_type fisher_budget_wanda`，或在 `prune_mlp.sh` 设 `SCORE_TYPE=fisher_budget_wanda`；批跑可把 `METHODS` 设为 `(magnitude fisher fisher_budget_wanda)`。
+
+### MLP 中间维共享重排
+
+可选开关 `--mlp_permutation wanda_shared`：在 mask 初始化与一切块打分之前，对每层 FFN 中间维做一次共享置换。
+
+对 SwiGLU：
+
+\[
+W_u'=PW_u,\qquad W_g'=PW_g,\qquad W_d'=W_dP^\top
+\]
+
+实现上对 `up`/`gate` 行与匹配的 `down` 列用同一 `perm` 做 `index_select`。因 SiLU 与 Hadamard 按元素运算，前向输出不变。
+
+神经元重要性用 Wanda：up/gate 为 \(\sum_j|W_{k,j}|a_j\)，down 为 \(a_k\sum_i|W_{i,k}|\)；三路各自 L1 归一化后等权相加，再稳定降序排序。
+
+与 `--share_up_gate_mask` 正交：前者重排神经元顺序，后者共享块坐标；可同时打开。
+
+无运行时 gather/scatter；剪枝开始后不再重算/重 apply；导出 checkpoint **保持置换坐标系**（不做 unpermute）。产物：
+
+| 路径 | 含义 |
+|------|------|
+| `pruning_artifacts/mlp_permutations.pt` | 每层 `permutation` / `inverse` / `combined_score` |
+| `pruning_artifacts/mlp_permutation_summary.json` | 置换元信息 |
+
+`wanda_shared` 会强制需要校准数据（即便 `score_type=magnitude`）。默认 `none`，现有剪枝行为不变。
 
 ### Qwen3.5 注意点
 

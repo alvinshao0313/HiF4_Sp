@@ -62,6 +62,7 @@ class GradientBlockPruningConfig:
 
     share_up_gate_mask: bool = False
     pruning_rounds: int = 1
+    mlp_permutation: str = "none"  # none | wanda_shared
 
     seed: int = 42
     score_accumulation_dtype: str = "float64"
@@ -87,6 +88,11 @@ class GradientBlockPruningConfig:
             "fisher_budget_wanda",
         }:
             raise ValueError(f"Unsupported score_type: {self.score_type}")
+        if self.mlp_permutation not in {"none", "wanda_shared"}:
+            raise ValueError(
+                f"Unsupported mlp_permutation: {self.mlp_permutation}. "
+                f"Choose from ['none', 'wanda_shared']."
+            )
         if self.selection_mode != "global_constrained":
             raise ValueError(f"Unsupported selection_mode: {self.selection_mode}")
         if self.score_batch_size != 1:
@@ -113,7 +119,10 @@ class GradientBlockPruningConfig:
             )
 
     def requires_calibration(self) -> bool:
-        return self.score_type in {"fisher", "fisher_budget_wanda"}
+        return (
+            self.score_type in {"fisher", "fisher_budget_wanda"}
+            or self.mlp_permutation == "wanda_shared"
+        )
 
     def requires_gradient_checkpointing(self) -> bool:
         return self.score_type in {"fisher", "fisher_budget_wanda"}

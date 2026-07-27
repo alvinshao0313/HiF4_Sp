@@ -48,6 +48,31 @@ def _summarize_device_map(model: torch.nn.Module) -> str:
     return "device_map={" + ", ".join(parts) + "}"
 
 
+def _fisher_max_memory(n_gpus: int) -> dict[int, str]:
+    """Per-GPU weight budgets that leave activation/logit headroom.
+
+    ``device_map='auto'`` alone packs the last GPU fullest (lm_head + most
+    layers). Fisher CE materializes ``[T, vocab]`` logits on that same GPU, so
+    long calibration sequences OOM there first. Cap last-GPU weight budget
+    harder so accelerate places fewer layers on it.
+    """
+    if n_gpus < 1:
+        raise ValueError(f"n_gpus must be >= 1, got {n_gpus}")
+    budgets: dict[int, str] = {}
+    for i in range(n_gpus):
+        total_gb = torch.cuda.get_device_properties(i).total_memory / (1024**3)
+        if n_gpus == 1:
+            frac = 0.90
+        elif i == n_gpus - 1:
+            frac = 0.48
+        elif i == 0:
+            frac = 0.68
+        else:
+            frac = 0.75
+        budgets[i] = f"{total_gb * frac:.0f}GiB"
+    return budgets
+
+
 def load_model_and_tokenizer(config: GradientBlockPruningConfig):
     """Load Qwen3.5-27B (or compatible CausalLM) for MLP block pruning.
 
@@ -57,7 +82,7 @@ def load_model_and_tokenizer(config: GradientBlockPruningConfig):
 
     CUDA placement follows ``CUDA_VISIBLE_DEVICES``:
     - 1 visible GPU: load onto that device
-    - 2+ visible GPUs: ``device_map='auto'`` shards across all visible GPUs
+    - 2+ visible GPUs: ``device_map='auto'`` with Fisher-aware ``max_memory``
     """
     torch_dtype = resolve_torch_dtype(config.dtype)
     tokenizer = AutoTokenizer.from_pretrained(
@@ -88,14 +113,21 @@ def load_model_and_tokenizer(config: GradientBlockPruningConfig):
             raise RuntimeError("device=cuda but torch.cuda.device_count() == 0")
         if n_visible == 1:
             common_kwargs["device_map"] = {"": 0}
+            print(
+                f"[prune] visible_gpus=1 device_map={{'': 0}}",
+                flush=True,
+            )
         else:
             # Shard across every GPU made visible by CUDA_VISIBLE_DEVICES.
+            # max_memory keeps the last GPU lighter for lm_head + CE logits.
+            max_memory = _fisher_max_memory(n_visible)
             common_kwargs["device_map"] = "auto"
-        print(
-            f"[prune] visible_gpus={n_visible} "
-            f"device_map={common_kwargs['device_map']!r}",
-            flush=True,
-        )
+            common_kwargs["max_memory"] = max_memory
+            print(
+                f"[prune] visible_gpus={n_visible} device_map='auto' "
+                f"max_memory={max_memory}",
+                flush=True,
+            )
     else:
         raise RuntimeError(
             f"Unsupported device={config.device!r} (cuda unavailable)"
@@ -121,15 +153,17 @@ def load_model_and_tokenizer(config: GradientBlockPruningConfig):
 
     print(f"[prune] placement: {_summarize_device_map(model)}", flush=True)
 
-    model.eval()
     if hasattr(model, "config"):
         model.config.use_cache = False
 
     if config.requires_gradient_checkpointing() and config.gradient_checkpointing:
+        # Flag only: HF applies checkpointing when module.training is True.
+        # Fisher scoring switches to train() (dropout off) in gradient_scorer.
         if hasattr(model, "gradient_checkpointing_enable"):
             model.gradient_checkpointing_enable()
         if hasattr(model, "enable_input_require_grads"):
             model.enable_input_require_grads()
 
+    model.eval()
     return model, tokenizer
 

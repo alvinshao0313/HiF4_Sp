@@ -42,7 +42,12 @@ def _build_s1k_batches(
     sequence_length: int,
     seed: int,
 ) -> list[dict[str, torch.Tensor]]:
-    """Load full s1K-1.1_tokenized text samples (no silent truncation)."""
+    """Load s1K-1.1_tokenized samples.
+
+    ``sequence_length=0`` keeps full text. ``sequence_length>0`` truncates to
+    that many tokens (needed for Fisher multi-GPU memory; CE logits live on
+    the last device and grow with T).
+    """
     if sequence_length < 0:
         raise ValueError(
             f"sequence_length must be >= 0 (0 = no truncate), got {sequence_length}"
@@ -60,6 +65,7 @@ def _build_s1k_batches(
     indices = random.Random(seed).sample(range(len(ds)), k=num_samples)
 
     batches: list[dict[str, torch.Tensor]] = []
+    n_truncated = 0
     for idx in indices:
         text = ds[idx]["text"]
         if not isinstance(text, str) or not text.strip():
@@ -74,12 +80,15 @@ def _build_s1k_batches(
         inp = encoded["input_ids"]
         seq_len = int(inp.shape[1])
         if sequence_length > 0 and seq_len > sequence_length:
-            raise ValueError(
-                f"s1k sample {idx} has length {seq_len} > sequence_length "
-                f"{sequence_length}; refuse to truncate. "
-                f"Use sequence_length=0 for no upper bound."
-            )
+            inp = inp[:, :sequence_length]
+            n_truncated += 1
         batches.append(_batch_from_input_ids(inp))
+    if n_truncated:
+        print(
+            f"[calib] s1k truncated {n_truncated}/{num_samples} samples "
+            f"to sequence_length={sequence_length}",
+            flush=True,
+        )
 
     if len(batches) != num_samples:
         raise RuntimeError(

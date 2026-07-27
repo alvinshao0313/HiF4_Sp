@@ -77,8 +77,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def _pick_metric(task_result: dict) -> tuple[str, float | None]:
-    """Prefer acc_norm then acc (lm_eval key style: 'acc,none')."""
-    for key in ("acc_norm,none", "acc,none", "acc_norm", "acc"):
+    """Prefer acc then acc_norm (lm_eval key style: 'acc,none')."""
+    for key in ("acc,none", "acc", "acc_norm,none", "acc_norm"):
         if key in task_result and isinstance(task_result[key], (int, float)):
             return key, float(task_result[key])
     return "", None
