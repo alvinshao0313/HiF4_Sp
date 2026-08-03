@@ -123,6 +123,25 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--confidence_k", type=int, default=16)
     parser.add_argument("--lafd_topk", type=int, default=3)
     parser.add_argument("--logit_chunk_size", type=int, default=512)
+    parser.add_argument(
+        "--kl_mode",
+        type=str,
+        default="eakld",
+        choices=["eakld", "eakld_topk", "kl_topk"],
+        help="KL 损失：eakld=全词表（默认）；eakld_topk=top-k 版 EAKLD；kl_topk=仅 forward top-k KL",
+    )
+    parser.add_argument(
+        "--kl_topk",
+        type=int,
+        default=128,
+        help="top-k KL 的 k（kl_mode!=eakld 时生效）",
+    )
+    parser.add_argument(
+        "--kl_post_attn",
+        type=str,
+        default="false",
+        help="true=全词表 softmax 后 gather 部分 KL；false=k 维重归一化（默认）",
+    )
 
     parser.add_argument(
         "--parallel_mode",
@@ -463,11 +482,15 @@ def main(argv: list[str] | None = None) -> None:
         confidence_k=int(args.confidence_k),
         lafd_topk=int(args.lafd_topk),
         logit_chunk_size=int(args.logit_chunk_size),
+        kl_mode=str(args.kl_mode),
+        kl_topk=int(args.kl_topk),
+        kl_post_attn=_str_to_bool(args.kl_post_attn),
         loss_lm_head=loss_lm_head,
     )
 
     logger.info(
-        "Start QAD: dataset=%s parallel=%s task_a=%.3f eakld_a=%.3f lafd_a=%.3f steps=%d max_len=%d",
+        "Start QAD: dataset=%s parallel=%s task_a=%.3f eakld_a=%.3f lafd_a=%.3f steps=%d max_len=%d"
+        " kl_mode=%s kl_topk=%d kl_post_attn=%s",
         dataset_path or args.dataset_name,
         parallel_mode,
         float(args.task_alpha),
@@ -475,6 +498,9 @@ def main(argv: list[str] | None = None) -> None:
         float(args.lafd_alpha),
         int(args.max_steps),
         int(args.model_max_length),
+        str(args.kl_mode),
+        int(args.kl_topk),
+        str(args.kl_post_attn),
     )
     trainer.train()
 

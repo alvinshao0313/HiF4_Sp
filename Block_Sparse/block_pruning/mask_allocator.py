@@ -94,6 +94,15 @@ def allocate_block_masks(
 
     score_type = ranking_score_type or config.score_type
 
+    if config.projection_prune_shares is not None:
+        return _allocate_by_projection_shares(
+            score_records=score_records,
+            config=config,
+            current_masks=current_masks,
+            target_sparsity=target_sparsity,
+            score_type=score_type,
+        )
+
     if config.share_up_gate_mask:
         return _allocate_shared_up_gate(
             score_records=score_records,
@@ -111,15 +120,180 @@ def allocate_block_masks(
     )
 
 
-def _allocate_independent(
+def _distribute_integer_budget(
+    total: int,
+    normalized_shares: dict[str, float],
+    order: tuple[str, ...],
+) -> dict[str, int]:
+    """Largest-remainder allocation so sum(budgets) == total."""
+    if total < 0:
+        raise ValueError(f"total budget must be >= 0, got {total}")
+    if set(normalized_shares) != set(order):
+        raise ValueError(
+            f"share keys {sorted(normalized_shares)} != order {list(order)}"
+        )
+    raw = {k: total * float(normalized_shares[k]) for k in order}
+    floors = {k: int(raw[k]) for k in order}
+    assigned = sum(floors.values())
+    remainder = total - assigned
+    # Prefer types with larger fractional parts, then larger share, then name.
+    ranked = sorted(
+        order,
+        key=lambda k: (-(raw[k] - floors[k]), -float(normalized_shares[k]), k),
+    )
+    budgets = dict(floors)
+    for i in range(remainder):
+        budgets[ranked[i]] += 1
+    if sum(budgets.values()) != total:
+        raise RuntimeError(
+            f"Budget distribution failed: sum={sum(budgets.values())} total={total}"
+        )
+    return budgets
+
+
+def _allocate_by_projection_shares(
     score_records: dict[str, BlockScoreRecord],
     config: GradientBlockPruningConfig,
     current_masks: dict[str, torch.Tensor],
     target_sparsity: float,
     score_type: str,
 ) -> MaskAllocationResult:
+    """Split global prune budget across projection types, then allocate within each."""
+    from block_pruning.config import (
+        PROJECTION_TYPES,
+        normalize_projection_prune_shares,
+    )
+
+    shares = config.projection_prune_shares
+    if shares is None:
+        raise RuntimeError("projection_prune_shares is None in share allocate path")
+    shares = normalize_projection_prune_shares(shares)
+
     total_blocks = sum(mask.numel() for mask in current_masks.values())
     target_pruned = int(total_blocks * target_sparsity)
+    type_targets = _distribute_integer_budget(
+        target_pruned, shares, PROJECTION_TYPES
+    )
+
+    by_type: dict[str, list[str]] = {p: [] for p in PROJECTION_TYPES}
+    for name, rec in score_records.items():
+        proj = rec.projection_type
+        if proj not in by_type:
+            raise ValueError(f"Unexpected projection_type {proj!r} for {name}")
+        by_type[proj].append(name)
+
+    for proj in PROJECTION_TYPES:
+        if not by_type[proj]:
+            raise RuntimeError(f"No modules found for projection type {proj}")
+
+    # share_up_gate only makes sense when allocating gate+up together.
+    # With per-type pools they are separate; require equal shares (validated in config)
+    # and still allocate each type independently unless share flag is on — when on,
+    # gate and up must be allocated jointly with equal budgets.
+    merged_masks = _clone_masks(current_masks)
+    newly_pruned = 0
+
+    if config.share_up_gate_mask:
+        if type_targets["gate_proj"] != type_targets["up_proj"]:
+            raise RuntimeError(
+                "share_up_gate_mask requires equal gate/up prune budgets after "
+                f"share distribution, got gate={type_targets['gate_proj']}, "
+                f"up={type_targets['up_proj']}"
+            )
+        # Allocate gate+up jointly with combined pool sparsity, then down alone.
+        ug_names = by_type["gate_proj"] + by_type["up_proj"]
+        ug_scores = {n: score_records[n] for n in ug_names}
+        ug_masks = {n: current_masks[n] for n in ug_names}
+        ug_target = type_targets["gate_proj"] + type_targets["up_proj"]
+        ug_result = _allocate_shared_up_gate(
+            score_records=ug_scores,
+            config=config,
+            current_masks=ug_masks,
+            target_sparsity=0.0,
+            score_type=score_type,
+            exact_target_pruned=ug_target,
+        )
+        for n, mask in ug_result.masks.items():
+            merged_masks[n] = mask
+        newly_pruned += ug_result.newly_pruned
+
+        down_names = by_type["down_proj"]
+        down_scores = {n: score_records[n] for n in down_names}
+        down_masks = {n: current_masks[n] for n in down_names}
+        down_target = type_targets["down_proj"]
+        down_result = _allocate_independent(
+            score_records=down_scores,
+            config=config,
+            current_masks=down_masks,
+            target_sparsity=0.0,
+            score_type=score_type,
+            exact_target_pruned=down_target,
+        )
+        for n, mask in down_result.masks.items():
+            merged_masks[n] = mask
+        newly_pruned += down_result.newly_pruned
+    else:
+        for proj in PROJECTION_TYPES:
+            names = by_type[proj]
+            sub_scores = {n: score_records[n] for n in names}
+            sub_masks = {n: current_masks[n] for n in names}
+            t_pruned = type_targets[proj]
+            sub_result = _allocate_independent(
+                score_records=sub_scores,
+                config=config,
+                current_masks=sub_masks,
+                target_sparsity=0.0,
+                score_type=score_type,
+                exact_target_pruned=t_pruned,
+            )
+            actual_type_pruned = sum(
+                int((~sub_result.masks[n]).sum().item()) for n in names
+            )
+            if actual_type_pruned != t_pruned:
+                raise RuntimeError(
+                    f"Projection share unmet for {proj}: "
+                    f"target_pruned={t_pruned}, actual={actual_type_pruned}"
+                )
+            for n, mask in sub_result.masks.items():
+                merged_masks[n] = mask
+            newly_pruned += sub_result.newly_pruned
+
+    num_pruned = sum(int((~mask).sum().item()) for mask in merged_masks.values())
+    if num_pruned != target_pruned:
+        raise RuntimeError(
+            f"Global pruned count {num_pruned} != target {target_pruned} "
+            f"after projection-share allocation"
+        )
+    return MaskAllocationResult(
+        masks=merged_masks,
+        num_total_blocks=total_blocks,
+        num_pruned_blocks=num_pruned,
+        actual_block_sparsity=num_pruned / total_blocks if total_blocks else 0.0,
+        newly_pruned=newly_pruned,
+        target_pruned=target_pruned,
+    )
+
+
+def _allocate_independent(
+    score_records: dict[str, BlockScoreRecord],
+    config: GradientBlockPruningConfig,
+    current_masks: dict[str, torch.Tensor],
+    target_sparsity: float,
+    score_type: str,
+    exact_target_pruned: int | None = None,
+) -> MaskAllocationResult:
+    total_blocks = sum(mask.numel() for mask in current_masks.values())
+    target_pruned = (
+        int(exact_target_pruned)
+        if exact_target_pruned is not None
+        else int(total_blocks * target_sparsity)
+    )
+    if exact_target_pruned is not None:
+        if not (0 <= target_pruned <= total_blocks):
+            raise ValueError(
+                f"exact_target_pruned={target_pruned} out of range "
+                f"[0, {total_blocks}]"
+            )
     already_pruned = sum(int((~mask).sum().item()) for mask in current_masks.values())
     additional_needed = target_pruned - already_pruned
 
@@ -196,10 +370,21 @@ def _allocate_shared_up_gate(
     current_masks: dict[str, torch.Tensor],
     target_sparsity: float,
     score_type: str,
+    exact_target_pruned: int | None = None,
 ) -> MaskAllocationResult:
     """Prune up/gate as joint pairs; cost counts as two physical blocks."""
     total_blocks = sum(mask.numel() for mask in current_masks.values())
-    target_pruned = int(total_blocks * target_sparsity)
+    target_pruned = (
+        int(exact_target_pruned)
+        if exact_target_pruned is not None
+        else int(total_blocks * target_sparsity)
+    )
+    if exact_target_pruned is not None:
+        if not (0 <= target_pruned <= total_blocks):
+            raise ValueError(
+                f"exact_target_pruned={target_pruned} out of range "
+                f"[0, {total_blocks}]"
+            )
     already_pruned = sum(int((~mask).sum().item()) for mask in current_masks.values())
     additional_needed = target_pruned - already_pruned
 

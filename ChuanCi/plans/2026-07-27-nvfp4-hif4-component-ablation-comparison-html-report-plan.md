@@ -10,9 +10,9 @@
 
 1. 对同一份 BF16 原始权重，直接量化为 NVFP4 和直接量化为 HiF4，二者的权重误差、线性层输出误差和模型性能差多少。
 2. HiF4 相比 NVFP4 的优势和劣势分别是什么，结论在哪些分布、层、模块和任务上成立。
-3. 从真实 packed NVFP4 权重转换为 HiF4，会额外引入多少误差；该额外误差与原始 NVFP4 误差如何耦合。
-4. HiF4 的顶层 scale、两级 micro-exponent 和 S1P2 payload 分别贡献了多少损失或收益。
-5. S1P2 的舍入损失占完整 HiF4 损失的比例是多少；该比例在不同数据分布和真实权重上是否稳定。
+3. 从真实 packed NVFP4 权重出发，分别经 FP32 解码载体和 BF16 解码载体转换为 HiF4，会额外引入多少误差；BF16 载体投影在总转换损失中占多少。
+4. HiF4 的顶层 scale、两级 micro-exponent 和 payload 格式分别贡献了多少损失或收益。
+5. 将 HiF4 的 S1P2 payload 替换为 E2M1 后损失是否下降；若 payload 不做 4-bit 量化而保留为 BF16，精度上限是多少。
 6. 现有 PTS/direct 转换路径中，哪些结论可靠，哪些实验需要修正或扩展。
 7. 所有图表和结论能否由结果 JSON 自动重建，而不是把数值手工写进 HTML。
 
@@ -28,7 +28,7 @@
 - 顶层 scale 的四种模式：`continuous`、`bf16_math`、`e6m2_only`、`hardware`；
 - 两级 micro-exponent：每 8 元素一级、每 4 元素一级；
 - S1P2 payload 量化；
-- NVFP4 direct、PTS-FP32、PTS-BF16 三条转换路径；
+- NVFP4 direct（完整权重以 FP32 解码载体进入 HiF4）、PTS-FP32、PTS-BF16；当前尚无完整权重 BF16 carrier direct 路径；
 - BF16-native → HiF4 路径；
 - tensor、category、global 的能量加权误差聚合；
 - packed checkpoint 与普通 checkpoint 读取；
@@ -42,9 +42,9 @@
 当前实验还不能严谨回答用户关心的问题，原因如下：
 
 1. **BF16→NVFP4 与 BF16→HiF4没有同一个 reference 下的直接比较。**现有 E1 分别以 `W_NV` 和 `W_BF16` 为 reference，两个 NMSE 不能直接解释为格式优劣。
-2. **HiF4组件消融不完整。**现有 E5 只看顶层 scale，E6 只看 group size；没有单独关闭或启用每 8 / 每 4 元素 micro-exponent，也没有 S1P2 精度消融。
-3. **S1P2损失占比尚未定义。**HiF4组件之间存在耦合，不能把若干独立 NMSE 简单相减后称为可加损失占比。
-4. **没有级联误差分解。**`BF16→NVFP4→HiF4` 的总误差不等于 NVFP4 误差加转换误差，还包含交叉项。
+2. **HiF4组件消融不完整。**现有 E5 只看顶层 scale，E6 只看 group size；没有单独关闭或启用每 8 / 每 4 元素 micro-exponent，也没有 S1P2、E2M1 与 BF16 payload 上限的直接比较。
+3. **S1P2损失占比尚未定义。**HiF4组件之间存在耦合，不能把若干独立 NMSE 简单相减后称为可加损失占比；需要以冻结层级决策后的 BF16 payload 上限作为条件参照。
+4. **没有原生 NVFP4 载体路径分解。**真实输入是 packed NVFP4，只存在 `NVFP4→FP32→HiF4` 与 `NVFP4→BF16→HiF4` 两条解码载体路径；当前实验没有把 BF16 载体投影损失、后续 HiF4 量化损失及二者交互项分开。
 5. **现有 E5/E6 的多 repeat 结果在循环中被覆盖。**当前结构只保留最后一次 repeat 的结果，不能作为正式统计结论；E7 的部分结果也只保存最后一个样本。
 6. **HTML是手工汇总。**当前 `NVFP4_HiF4_experiment_report.html` 内嵌固定数值，不能保证结果更新后同步变化，也依赖 CDN。
 7. **真实 BF16 权重来源需要严格确认。**`Qmodel/Qwen3.5-27B-NVFP4-BF16` 从命名上更像 NVFP4 解码后的 BF16 模型，不能未经验证就当作原始 BF16 reference。
@@ -96,53 +96,80 @@ R_{H/NV}=\frac{L_H}{L_{NV}}.
 - 这组实验是“格式能力”的主要证据；
 - NVFP4 和 HiF4 必须使用相同 BF16 权重、相同 tensor 覆盖范围、相同 RTN 原则和相同分组维度。
 
-### 3.2 级联转换分析：回答 NVFP4→HiF4 额外损失
+### 3.2 原生转换分析：回答 NVFP4 经 FP32/BF16 载体转 HiF4 的差距
 
-对真实或模拟 NVFP4：
+真实输入是 packed NVFP4。先定义其数学解码值：
 
 \[
-W_{NVH}=Q_{HiF4}(W_{NV}).
+W_{NV}^{32}=D_{FP32}(P_{NV}),
 \]
 
-同时报告两种 reference：
+其中 `P_NV` 包含 E2M1 payload、E4M3 block scale 和 tensor-level global scale。`W_NV^32` 是本实验唯一的 native reference，不需要也不假设存在对应的原始 BF16 权重。
 
-1. 相对 NVFP4 本身的转换损失：
+两条主路径固定为：
 
 \[
-L_{convert}=\frac{\|W_{NVH}-W_{NV}\|_F^2}{\|W_{NV}\|_F^2}.
+\widehat W_{H,32}=Q_{HiF4}(W_{NV}^{32}),
 \]
 
-2. 相对原始 BF16 的最终级联损失：
-
 \[
-L_{cascade}=\frac{\|W_{NVH}-W_{BF}\|_F^2}{\|W_{BF}\|_F^2}.
-\]
-
-定义：
-
-\[
-e_{NV}=W_{NV}-W_{BF},
+W_{NV}^{16}=BF16(W_{NV}^{32}),
 \qquad
-e_C=W_{NVH}-W_{NV}.
+\widehat W_{H,16}=Q_{HiF4}(W_{NV}^{16}).
 \]
 
-则必须验证并报告精确恒等式：
+主指标统一相对 `W_NV^32`：
 
 \[
-\|W_{NVH}-W_{BF}\|^2
+L_{FP32\ carrier}
 =
-\|e_{NV}\|^2+\|e_C\|^2+2\langle e_{NV},e_C\rangle.
+\frac{\|\widehat W_{H,32}-W_{NV}^{32}\|_F^2}
+{\|W_{NV}^{32}\|_F^2},
 \]
 
-归一化后输出：
+\[
+L_{BF16\ carrier,total}
+=
+\frac{\|\widehat W_{H,16}-W_{NV}^{32}\|_F^2}
+{\|W_{NV}^{32}\|_F^2}.
+\]
 
-- `nv_error_term`；
-- `conversion_error_term`；
-- `cross_term`；
-- `cascade_total`；
-- `identity_residual`，要求接近 FP64 数值误差。
+BF16 路径还要单独报告相对 BF16 载体自身的 HiF4 量化损失：
 
-这一步禁止把 `L_NV + L_convert` 当成最终误差。
+\[
+L_{HiF4\mid BF16}
+=
+\frac{\|\widehat W_{H,16}-W_{NV}^{16}\|_F^2}
+{\|W_{NV}^{16}\|_F^2}.
+\]
+
+为解释 BF16 路径总损失，定义：
+
+\[
+e_{carrier}=W_{NV}^{16}-W_{NV}^{32},
+\qquad
+e_H=\widehat W_{H,16}-W_{NV}^{16}.
+\]
+
+验证精确恒等式：
+
+\[
+\|\widehat W_{H,16}-W_{NV}^{32}\|^2
+=
+\|e_{carrier}\|^2+\|e_H\|^2+2\langle e_{carrier},e_H\rangle.
+\]
+
+分解中的三项统一除以 `||W_NV^32||²` 后输出：
+
+- `carrier_projection_term`；
+- `hif4_after_bf16_term`；
+- `carrier_hif4_cross_term`；
+- `bf16_carrier_total`；
+- `fp32_carrier_total`；
+- `bf16_minus_fp32_delta`；
+- `identity_residual`。
+
+这组原生转换实验禁止出现 `BF16→NVFP4→HiF4` 的命名。原始 BF16 权重只用于 3.1 的独立格式公平比较。
 
 ### 3.3 HiF4内部归因：回答各组件的增益与损失
 
@@ -171,56 +198,72 @@ class HiF4AblationConfig:
     scale_mode: str = "hardware"
     enable_exp8: bool = True
     enable_exp4: bool = True
-    payload_fraction_bits: int | None = 2
-    payload_max: float = 1.75
-    payload_clip: bool = True
+    payload_format: Literal["s1p2", "e2m1", "bf16", "fp32"] = "s1p2"
+    payload_clip_max: float | None = 1.75
 ```
 
 语义：
 
-- `payload_fraction_bits=2`：标准 S1P2；
-- `payload_fraction_bits=3/4`：只用于分析的同范围 P3/P4；
-- `payload_fraction_bits=None`：连续 payload，只保留范围裁剪；
+- `payload_format="s1p2", payload_clip_max=1.75`：标准 HiF4；
+- `payload_format="e2m1"`：使用 `{0, 0.5, 1, 1.5, 2, 3, 4, 6}` 非负码本；
+- `payload_format="bf16"`：normalized payload 保持 BF16，用于精度上限；
+- `payload_format="fp32"`：仅作数学 oracle 和实现校验；
+- `payload_clip_max=1.75`：保持标准 S1P2 动态范围；
+- `payload_clip_max=None`：不裁剪，用于 BF16/FP32 payload 的绝对上限；
 - `enable_exp4=True, enable_exp8=False` 时，exp4 直接相对 `S0` 判定，不借用不存在的 exp8；
+- E2M1 的“冻结标准层级”和“E2M1-aware 重调层级”由实验编排器显式区分；
 - 任意非标准配置都在结果中标记 `is_standard_hif4=false`。
 
-### 4.2 同源格式对比结果
+### 4.2 同源格式对比与原生转换结果
 
-建议新增：
+两个问题使用两个独立接口，禁止把原始 BF16 格式对比与 native NVFP4 转换混成一个所谓 cascade。
 
-```python
-@dataclass
-class PairedFormatResult:
-    reference: ErrorSums
-    nvfp4: ErrorSums
-    hif4: ErrorSums
-    nvfp4_to_hif4_native: ErrorSums
-    nvfp4_to_hif4_cascade: ErrorSums
-    cascade_terms: dict[str, float]
-    metadata: dict[str, object]
-```
-
-公开函数：
+同源格式对比：
 
 ```python
 def evaluate_paired_formats(
     bf16_weight: torch.Tensor,
     *,
-    actual_nvfp4_weight: torch.Tensor | None = None,
-    actual_nvfp4_pts_scale: torch.Tensor | float | None = None,
     hif4_config: HiF4AblationConfig = HiF4AblationConfig(),
     return_reconstructions: bool = False,
 ) -> dict[str, object]:
     ...
 ```
 
-必须同时提供：
+只返回：
 
-- `simulated_nvfp4_from_bf16`；
-- `direct_hif4_from_bf16`；
-- 有真实 packed 权重时的 `actual_nvfp4`；
-- `actual_nvfp4_to_hif4`；
-- simulated NVFP4 与 actual packed NVFP4 的一致性检查。
+- `bf16_reference`；
+- `nvfp4_from_bf16`；
+- `hif4_from_bf16`；
+- `hif4_minus_nvfp4`；
+- `hif4_over_nvfp4`。
+
+原生 packed NVFP4 转换：
+
+```python
+def evaluate_native_nvfp4_conversion(
+    nvfp4_fp32: torch.Tensor,
+    *,
+    pts_scale: torch.Tensor | float | None,
+    hif4_config: HiF4AblationConfig = HiF4AblationConfig(),
+    actual_bf16_decoded_weight: torch.Tensor | None = None,
+    return_reconstructions: bool = False,
+) -> dict[str, object]:
+    ...
+```
+
+必须返回：
+
+- `nvfp4_reference_fp32`；
+- `nvfp4_carrier_bf16 = BF16(nvfp4_reference_fp32)`；
+- `fp32_carrier_to_hif4`；
+- `bf16_carrier_to_hif4`；
+- `bf16_carrier_projection`；
+- `bf16_carrier_decomposition`；
+- `bf16_minus_fp32_delta`；
+- PTS 路径作为次级变体单独保存，不能替代两条主载体路径。
+
+若提供真实解码后的 BF16 checkpoint，还要比较它与 `BF16(nvfp4_reference_fp32)` 的逐元素一致性；不一致时分别标记“数学 BF16 投影”和“实际 BF16 解码实现”。
 
 ### 4.3 组件消融接口
 
@@ -238,7 +281,7 @@ def evaluate_hif4_component_ablation(
 
 - micro-exponent 2×2 四个组合；
 - top-scale 2×2 四个组合；
-- S1P2/P3/P4/continuous payload；
+- S1P2-native、E2M1-native、E2M1-fixed、S1P2-search-oracle、E2M1-search-oracle、BF16-range-matched、BF16-unclipped payload；
 - sequential gains；
 - factorial main effects；
 - interaction；
@@ -301,10 +344,14 @@ ChuanCi/
 
 ```text
 W_BF16
-W_NVFP4 = Q_NVFP4(W_BF16)
-W_HiF4  = Q_HiF4(W_BF16)
-W_NV_H  = Q_HiF4(W_NVFP4)
+W_NVFP4_FP32 = Q_NVFP4(W_BF16)                 # 数学解码值，FP32 载体
+W_NVFP4_BF16 = BF16(W_NVFP4_FP32)              # BF16 解码载体
+W_HiF4       = Q_HiF4(W_BF16)                  # 仅用于同源格式比较
+W_NV_H_FP32  = Q_HiF4(W_NVFP4_FP32)            # 原生 FP32 载体转换
+W_NV_H_BF16  = Q_HiF4(W_NVFP4_BF16)            # 原生 BF16 载体转换
 ```
+
+前两条转换路径都以 `W_NVFP4_FP32` 为 native reference；`W_BF16` 只用于 NVFP4 与 HiF4 的独立同源格式比较。
 
 ### 5.2 结构化 64-group 分布
 
@@ -458,112 +505,195 @@ Interaction_{scale}
 - 真实权重按 energy-weighted global/category/layer 聚合；
 - 不再只展示 `hardware-continuous` 一个差值。
 
-## 8. 实验 D：S1P2损失占比
+## 8. 实验 D：S1P2、E2M1 与 BF16 payload 精度上限
 
-### 8.1 方法学约束
+### 8.1 要回答的问题
 
-S1P2 payload 的网格由 S0、exp8、exp4 共同决定，因此不存在与其他组件完全独立、天然可加的“唯一损失占比”。报告采用两种互补口径，并明确区分：
+本实验直接回答：
 
-1. **冻结实际 scale/exponent 决策后的残余损失分解**；
-2. **固定动态范围、提高 payload 精度后的可恢复损失**。
+1. 将 S1P2 完整替换为 E2M1，并按 E2M1 重新计算 S0 和两级 exponent 后，误差会变小还是变大；
+2. 如果只换 E2M1 码点、却错误地沿用 S1P2 的 S0 和 exponent，结果会偏离多少；
+3. 对 S1P2 和 E2M1 使用同样的局部搜索后，两种格式各自还能提升多少；
+4. 如果 payload 不再压缩成 4-bit，而是保留为 BF16，精度上限是多少。
 
-### 8.2 冻结网格的精确能量分解
+S1P2 与 E2M1 都有 8 个非负 magnitude code，但分布完全不同：
 
-先按标准 HiF4 得到实际 `S_i`，随后构造：
+```text
+S1P2: {0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75}
+E2M1: {0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0}
+```
+
+S1P2 在小幅值区间更密，E2M1 动态范围更大。因此不能只做一个未重调 scale 的 E2M1 实验后就判断码本优劣。
+
+### 8.2 主实验与辅助实验
+
+主实验不是“只把最后一步的 S1P2 码点换成 E2M1”，而是把这一层的数据格式完整替换掉。E2M1 必须使用自己的最大值重新计算 S0，并重新决定每 8 个元素和每 4 个元素的 exponent。
+
+| 变体 | S0 与 exponent 如何确定 | Payload | 作用 |
+|---|---|---|---|
+| `s1p2_native` | 按标准 HiF4 规则计算 | S1P2 | 标准基线 |
+| `e2m1_native` | 按 E2M1 的数值范围重新计算 S0，并重新计算两级 exponent | E2M1 | 主实验，回答完整换成 E2M1 后是否更准 |
+| `e2m1_fixed_hierarchy` | 沿用 S1P2 的 S0 和 exponent | E2M1 | 辅助实验，只说明“只换码点、不改 scale”会发生什么 |
+| `s1p2_search_oracle` | 在附近搜索更优的 S0 和 exponent 组合 | S1P2 | 分析标准 S1P2 规则距离局部最优还有多远 |
+| `e2m1_search_oracle` | 使用完全相同的搜索方法 | E2M1 | 分析 E2M1 原生规则距离局部最优还有多远 |
+| `bf16_range_matched` | 固定 `s1p2_native` 的 S0 和 exponent | BF16，范围仍限制在 0–1.75 | 只去掉 S1P2 码点舍入后的精度上限 |
+| `bf16_unclipped` | 固定 `s1p2_native` 的 S0 和 exponent | BF16，不限制到 1.75 | Payload 保持 BF16 时的绝对精度上限 |
+
+再增加 `fp32_unclipped` 作为数值正确性校验，不放入主性能表。它应近似精确重建输入，用来检查整个计算链路是否实现正确。
+
+所有变体必须相对同一个输入计算误差；BF16 原始权重和 NVFP4 原生权重分开报告。
+
+### 8.3 S0 必须随数据格式一起改变
+
+可以把 S0 理解成一把“总尺子”。后面的两级 exponent 最多能把这把尺子再放大 4 倍，所以 S0 要根据 payload 能表示的最大值来计算。
+
+S1P2 的最大非负值是 1.75：
 
 \[
-p_{cont}=clip(|x|/S_i,0,1.75),
+S_{0,S1P2}\approx\frac{amax_{64}}{1.75\times2\times2}=\frac{amax_{64}}{7}.
+\]
+
+E2M1 的最大非负值是 6：
+
+\[
+S_{0,E2M1}\approx\frac{amax_{64}}{6\times2\times2}=\frac{amax_{64}}{24}.
+\]
+
+因此，主实验中的 E2M1 必须从 `amax64/24` 附近选择 E6M2 scale，不能继续沿用 S1P2 的 `amax64/7`。得到新的 S0 后，还要重新判断每 8 个元素和每 4 个元素是否需要乘 2。这样测到的才是完整替换为 E2M1 后的结果。
+
+实现时优先使用简单而可靠的规则：
+
+1. 先按对应格式计算 S0；
+2. 对每 8 个元素，分别尝试 exponent 为 0 和 1；
+3. 对其中每 4 个元素，再分别尝试 exponent 为 0 和 1；
+4. 选择重建误差更小的合法组合。
+
+这里每一级都只有两个合法选择，因此计算逻辑清楚，也不会引入额外的可学习参数。`e2m1_fixed_hierarchy` 仍会保留，但只用于展示错误地沿用 S1P2 尺子会带来多大影响，不作为主结论。
+
+### 8.4 使用相同搜索方法得到参考上限
+
+为了避免把“搜索方法更好”误认为“E2M1 格式更好”，再为 S1P2 和 E2M1 各运行一次完全相同的局部搜索：
+
+1. 从各自原生计算得到的 S0 开始；
+2. 枚举附近的 E6M2 scale；
+3. 对每个候选 scale，尝试所有合法的 exp8 和 exp4 组合；
+4. 选择 64 个元素总平方误差最小的组合。
+
+主结论来自 `s1p2_native` 与 `e2m1_native`。`s1p2_search_oracle` 和 `e2m1_search_oracle` 只用于回答“原生计算规则距离更优结果还有多少空间”。
+
+为确认局部搜索窗口没有漏掉更优结果：
+
+- 合成实验随机抽取 10,000 个 group；
+- 代表层真实权重每个 tensor 抽取 2,048 个 group；
+- 对这些 group 穷举全部 255 个 E6M2 top-scale code；
+- 报告局部搜索找到全局最优结果的比例，以及与全局最优结果之间的误差差距。
+
+### 8.5 BF16 payload 精度上限
+
+固定标准 HiF4 的 `S_i`，构造：
+
+\[
+p_{BF16,matched}=BF16\left(clip\left(|x|/S_i,0,1.75\right)\right),
 \]
 
 \[
-\widehat x_{clip}=sign(x)S_ip_{cont},
+p_{BF16,unclipped}=BF16\left(|x|/S_i\right).
 \]
 
+对应重建：
+
 \[
-\widehat x_{P2}=sign(x)S_iQ_{P2}(p_{cont}).
+\widehat x_{BF16,*}=sign(x)S_ip_{BF16,*}.
 \]
 
-定义：
+两种上限含义不同：
+
+- `bf16_range_matched`：保持标准 HiF4 的动态范围，只去除 S1P2 的离散码点误差；
+- `bf16_unclipped`：连 1.75 范围约束也去掉，表示“payload 真正保持 BF16”的绝对上限，但存储不再是4-bit。
+
+主比例定义：
 
 \[
-e_{clip}=\widehat x_{clip}-x,
-\qquad
-\delta_{round}=\widehat x_{P2}-\widehat x_{clip}.
-\]
-
-精确分解：
-
-\[
-\|\widehat x_{P2}-x\|^2
+Recoverable_{S1P2\to BF16,matched}
 =
-\|e_{clip}\|^2
+\frac{L_{S1P2}-L_{BF16,matched}}{L_{S1P2}},
+\]
+
+\[
+Recoverable_{S1P2\to BF16,unclipped}
+=
+\frac{L_{S1P2}-L_{BF16,unclipped}}{L_{S1P2}}.
+\]
+
+第一项是最适合作为“S1P2码点量化损失占比”的条件口径；第二项是包括 payload 动态范围限制在内的绝对可恢复上限。
+
+### 8.6 S1P2相对BF16上限的精确分解
+
+令：
+
+\[
+e_{upper}=\widehat x_{BF16,matched}-x,
+\qquad
+\delta_{S1P2}=\widehat x_{S1P2}-\widehat x_{BF16,matched}.
+\]
+
+则：
+
+\[
+\|\widehat x_{S1P2}-x\|^2
+=
+\|e_{upper}\|^2
 +
-\|\delta_{round}\|^2
+\|\delta_{S1P2}\|^2
 +
-2\langle e_{clip},\delta_{round}\rangle.
+2\langle e_{upper},\delta_{S1P2}\rangle.
 \]
 
 输出：
 
-- `clip_energy_share`；
-- `payload_round_energy_share`；
-- `interaction_share`；
-- `saturation_element_rate`；
-- `saturation_energy_rate`；
+- `bf16_range_matched_floor`；
+- `s1p2_increment_energy`；
+- `s1p2_upper_interaction`；
+- `conditional_s1p2_recoverable_fraction`；
 - `identity_residual`。
 
-若标准完整层级使 clipping 几乎为零，报告应表述为：
+报告必须表述为“在冻结标准层级 scale/exponent 和动态范围后的条件贡献”，不能声称这是与 top scale、micro-exponent 完全独立的物理损失。
 
-> 在固定标准 HiF4 层级 scale 后，剩余误差主要/全部来自 S1P2 舍入。
+### 8.7 E2M1与S1P2配对指标
 
-不能表述为：
-
-> S1P2 独立造成了整个格式的全部误差。
-
-### 8.3 同范围 payload 精度扫描
-
-保持：
-
-- 同一个 top scale；
-- 同一个 exp8/exp4 map；
-- 同一个最大幅值 1.75；
-- 只改变 payload fractional bits。
-
-比较：
-
-| 变体 | 步长 | 最大值 | 标准格式? |
-|---|---:|---:|---:|
-| P2 | 1/4 | 1.75 | 是 |
-| P3 | 1/8 | 1.75 | 否，分析用 |
-| P4 | 1/16 | 1.75 | 否，分析用 |
-| continuous | 连续 | 1.75 | 否，误差下界 |
-
-计算：
+主格式比较：
 
 \[
-Recoverable_{P3}=1-\frac{L_{P3}}{L_{P2}},
-\qquad
-Recoverable_{P4}=1-\frac{L_{P4}}{L_{P2}},
+\Delta_{native}=L_{E2M1,native}-L_{S1P2,native}.
 \]
 
-以及：
+- `Δ_native < 0`：完整 E2M1 格式误差更小；
+- `Δ_native > 0`：标准 S1P2 格式误差更小。
 
-\[
-ResidualFloor=\frac{L_{continuous}}{L_{P2}}.
-\]
+另外报告三组辅助结果：
 
-这组结果直观回答：如果只增加 payload 精度，能追回多少 HiF4 损失。
+1. `e2m1_fixed_hierarchy - s1p2_native`：说明只换码点、不重新计算 S0 会造成什么影响；
+2. `e2m1_search_oracle - s1p2_search_oracle`：在两种格式使用相同搜索方法时，哪一种潜在上限更高；
+3. native 与 search-oracle 之间的差距：说明当前 S0 和 exponent 计算规则还有多少优化空间。
 
-### 8.4 S1P2码点诊断
+所有结果还要统计：
 
-按 source 和 tensor 统计：
+- E2M1 在不同 repeat、tensor 和 group 中胜出的比例；
+- E2M1 与 `bf16_range_matched` 之间还剩多少误差；
+- 两种格式在小数值、大数值和接近最大码点区域的误差；
+- 在不同组内动态范围下，哪种格式更占优势。
 
-- 8 个非负 magnitude code 的 occupancy；
+### 8.8 Payload码点诊断
+
+按 source、tensor 和 group 统计：
+
+- S1P2 与 E2M1 各 magnitude code 的 occupancy；
 - zero code 占比；
-- 1.75 饱和码占比；
-- 舍入误差在各 code 上的能量贡献；
-- 距离中点小于给定阈值的元素比例；
-- top 1%、5%、10% 高误差 group 中的 payload code 分布。
+- S1P2 1.75 与 E2M1 6.0 最大码点占比；
+- 各码点的误差能量贡献；
+- S1P2/E2M1 决策不一致率；
+- BF16 upper bound 与两种 4-bit payload 的逐元素 gap；
+- top 1%、5%、10% 高误差 group 中的 payload 分布。
 
 ## 9. 实验 E：BF16→NVFP4 与 BF16→HiF4 性能差距
 
@@ -641,12 +771,12 @@ Y_H=XW_H^T.
 
 ### 10.1 权重来源与 provenance
 
-正式实验至少需要：
+正式实验分两类输入：
 
-1. 原始 BF16 checkpoint；
-2. 与其同源的真实 packed NVFP4 checkpoint；
-3. 必要时，由原始 BF16 本地模拟得到的 NVFP4；
-4. 由同一个 BF16 checkpoint直接 RTN 得到的 HiF4。
+1. **同源格式比较**需要原始 BF16 checkpoint、由其生成或与其严格同源的 packed NVFP4，以及从同一个 BF16 checkpoint直接 RTN 得到的 HiF4；
+2. **原生 NVFP4转换**只需要真实 packed NVFP4 checkpoint，由脚本分别解码为 FP32 carrier 和 BF16 carrier；
+3. 必要时，由原始 BF16 本地模拟得到 NVFP4，用于验证本地 NVFP4 生成器是否复现实际 packed checkpoint；
+4. 可选提供一个实际 NVFP4 解码后的 BF16 checkpoint，用于验证真实 BF16 解码实现是否等于 `BF16(FP32_decode)`。
 
 每份 checkpoint 保存：
 
@@ -657,11 +787,17 @@ Y_H=XW_H^T.
 - tensor 名称和 shape 摘要；
 - 来源说明。
 
-`Qmodel/Qwen3.5-27B-NVFP4-BF16` 只有在验证其确实是原始高精度模型后才能作为 BF16 reference。若它是 NVFP4 解码值，则只能用于 NVFP4 fake-weight 路径，不能用于格式公平比较。
+`Qmodel/Qwen3.5-27B-NVFP4-BF16` 应优先按“实际 NVFP4 解码后的 BF16 carrier checkpoint”核验：若其逐元素等于或接近 `BF16(FP32_decode(packed NVFP4))`，则用于 `NVFP4→BF16→HiF4` 的真实载体路径；它不能作为原始 BF16 reference，也不能用于 BF16→NVFP4 与 BF16→HiF4 的格式公平比较。
 
 ### 10.2 tensor覆盖范围
 
-主实验只取 BF16 与 NVFP4 的交集，并遵循 NVFP4 recipe：
+tensor覆盖按实验类型分别确定：
+
+- **同源格式比较**：只取原始 BF16 与 packed NVFP4 的名称/shape 交集；
+- **原生 NVFP4转换**：覆盖 packed NVFP4 recipe 中的全部目标 tensor，不要求原始 BF16 存在；
+- **实际 BF16 carrier验证**：只取 packed NVFP4 FP32 decode 与 NVFP4-BF16 checkpoint 的名称/shape 交集。
+
+统一遵循 NVFP4 recipe：
 
 - MLP：`gate_proj/up_proj/down_proj`；
 - full-attention：`q_proj/k_proj/v_proj/o_proj`；
@@ -718,51 +854,54 @@ Y_H=XW_H^T.
 
 ## 11. 实验 G：NVFP4→HiF4转换路径完善
 
-### 11.1 保留并明确当前路径
+### 11.1 两条原生载体路径
 
-继续报告：
+以 packed NVFP4 的 FP32 数学解码值 `W_NV^32` 为唯一 reference，主实验只比较：
 
-- direct：`Q_HiF4(W_NV)`；
-- PTS-FP32：`s_T * Q_HiF4(W_NV/s_T)`；
-- PTS-BF16：`s_T * Q_HiF4(BF16(W_NV/s_T))`。
+- `fp32_carrier_direct`：`Q_HiF4(W_NV^32)`；
+- `bf16_carrier_direct`：`Q_HiF4(BF16(W_NV^32))`。
 
-每条路径同时报告：
+每条路径报告：
 
-- 相对 `W_NV` 的 native conversion NMSE；
-- 相对 `W_BF16` 的 cascade NMSE；
+- 相对 `W_NV^32` 的 native conversion NMSE；
+- BF16 路径相对 `BF16(W_NV^32)` 的条件 HiF4 NMSE；
+- BF16 carrier projection NMSE；
+- BF16 carrier 的 projection / HiF4 / cross-term 精确分解；
 - 重建能量比；
-- 级联 cross term；
 - tensor/category/layer/global；
-- direct 与 PTS 的配对胜率。
+- FP32 carrier 与 BF16 carrier 的配对胜率和 delta。
 
-### 11.2 新增 direct HiF4 对照
+### 11.2 PTS路径作为次级变体
 
-必须增加：
+保留现有：
 
-```text
-BF16 → HiF4 direct
-BF16 → NVFP4 → HiF4 cascade
-```
+- PTS-FP32：`s_T * Q_HiF4(W_NV^32/s_T)`；
+- PTS-BF16：`s_T * Q_HiF4(BF16(W_NV^32/s_T))`。
 
-二者都相对 `W_BF16`，用来回答：已经只有 NVFP4 checkpoint 时再转 HiF4，比直接从 BF16 生成 HiF4 多损失多少。
+但必须明确：
 
-### 11.3 direct HiF4与cascade HiF4的决策分歧
+- PTS-FP32/PTS-BF16 是“是否提出 tensor global scale 以及 normalized carrier dtype”的消融；
+- 它们不等同于完整权重的 `NVFP4→FP32/BF16→HiF4` 两条主载体路径；
+- PTS 路径同样只相对 `W_NV^32` 计算误差；
+- 主报告先展示两条 direct carrier 路径，再单列 PTS 分析。
 
-对同一个 BF16 reference，比较 `Q_HiF4(W_BF16)` 与 `Q_HiF4(W_NVFP4)` 的内部决策：
+### 11.3 FP32与BF16载体的决策分歧
+
+比较 `Q_HiF4(W_NV^32)` 与 `Q_HiF4(BF16(W_NV^32))` 的内部决策：
 
 - top-scale code exact fraction；
 - exp8 bit exact fraction；
 - exp4 bit exact fraction；
-- S1P2 payload code exact fraction；
+- payload code exact fraction；
 - 最终重建 exact fraction；
 - 仅 top-scale 改变、仅 exponent 改变、仅 payload 改变和多项同时改变的 group 比例；
-- 各类 decision-change group 对 direct-vs-cascade gap 的误差能量贡献。
+- 各类 decision-change group 对 BF16-vs-FP32 carrier gap 的误差能量贡献。
 
 额外构造冻结决策对照：
 
-1. 使用 BF16-direct 的 scale/exponent map 量化 NVFP4 source；
-2. 使用 cascade 的 scale/exponent map 量化 BF16 source；
-3. 分别固定 top scale、固定 exponent、固定 payload code，定位级联差距主要由哪一级决策翻转产生。
+1. 使用 FP32 carrier 路径的 scale/exponent map 量化 BF16 carrier；
+2. 使用 BF16 carrier 路径的 scale/exponent map 量化 FP32 carrier；
+3. 分别固定 top scale、固定 exponent、固定 payload code，定位载体投影导致的差距主要由哪一级决策翻转产生。
 
 这些冻结决策实验只用于归因，必须标记为非部署路径。
 
@@ -776,9 +915,10 @@ BF16 → NVFP4 → HiF4 cascade
 - scale 均值、标准差、变异系数；
 - 四块 reference energy；
 - HiF4 group NMSE；
+- FP32 carrier 与 BF16 carrier gap；
 - direct 与 PTS gap；
 - exp8/exp4 使用率；
-- S1P2 residual share。
+- S1P2、E2M1 与 BF16 payload gap。
 
 按 `log2 scale range` 分桶：
 
@@ -819,9 +959,10 @@ BF16 → NVFP4 → HiF4 cascade
 1. BF16；
 2. BF16→NVFP4 RTN；
 3. BF16→HiF4 RTN；
-4. BF16→NVFP4→HiF4 direct cascade；
-5. BF16→NVFP4→HiF4 PTS-BF16；
-6. 可选：现有 HiF4 GPTQ，仅作为“算法补偿后结果”，不与 RTN 格式能力混为一谈。
+4. 原生 packed NVFP4→FP32 carrier→HiF4；
+5. 原生 packed NVFP4→BF16 carrier→HiF4；
+6. 原生 packed NVFP4→PTS-FP32/PTS-BF16→HiF4，作为次级转换变体；
+7. 可选：现有 HiF4 GPTQ，仅作为“算法补偿后结果”，不与 RTN 格式能力混为一谈。
 
 ### 12.3 评测集合
 
@@ -871,8 +1012,8 @@ BF16 → NVFP4 → HiF4 cascade
     "paired_format": {},
     "micro_exponent_ablation": {},
     "top_scale_ablation": {},
-    "s1p2_decomposition": {},
-    "conversion": {},
+    "payload_format_ablation": {},
+    "native_carrier_conversion": {},
     "threshold_sweeps": {}
   },
   "real_controlled": {
@@ -926,10 +1067,16 @@ identity_residual
 - 图表由结果 JSON 自动生成；
 - HTML 中不手写任何正式实验数值；
 - 预检报告允许可选章节显示“未运行”，不伪造 0；最终报告若缺少主实验章节则渲染失败；
-- 每张图都注明 reference 和聚合口径；
-- native loss、same-source loss、cascade loss 使用不同视觉标签；
+- 每张图都注明比较基准和统计方式；
+- same-source 格式损失、FP32 carrier 原生转换、BF16 carrier 原生转换使用不同视觉标签；
 - 适合浏览器阅读和科研汇报截图；
-- 颜色采用白底、钴蓝主色，橙色强调 gap，灰色表示分析性非标准格式。
+- 颜色采用白底、钴蓝主色，橙色强调差距，灰色表示分析性非标准格式；
+- 以高中生能够顺畅阅读为目标，不要求读者预先理解量化格式；
+- 每个实验章节先用三句话说明：为什么做、具体改了什么、结果应该怎么看；
+- 专业术语第一次出现时必须立刻解释，例如把 S0 解释为“一组数据共用的总尺子”，把 payload 解释为“每个权重最终保存的4-bit数值”；
+- 每个公式后紧跟一段通俗解释，说明分子、分母和正负号分别代表什么；
+- 正文优先展示结论和关键数字，完整公式、实现参数和逐层结果放在可展开的“实验细节”区域；
+- 不使用没有解释的缩写和英文术语，不把“相关”写成“导致”，不根据少量代表层直接推广到整个模型。
 
 ### 14.2 页面结构
 
@@ -938,9 +1085,9 @@ identity_residual
 四个核心结论卡片：
 
 - BF16→NVFP4 与 BF16→HiF4 主差距；
-- NVFP4→HiF4 额外转换损失；
+- NVFP4→FP32/BF16 carrier→HiF4 的差距；
 - HiF4最大损失组件；
-- S1P2条件残余损失占比。
+- S1P2换成E2M1是否获益，以及BF16 payload精度上限。
 
 每个结论卡片显示：数值、数据范围、reference、是否来自真实权重。
 
@@ -974,14 +1121,15 @@ identity_residual
 
 表格：global/category/layer 主结果。
 
-#### 4. NVFP4→HiF4级联转换
+#### 4. NVFP4→FP32/BF16载体→HiF4原生转换
 
 图表：
 
-1. BF16→NV→HiF4 的误差 waterfall：NV误差项、转换项、cross term、最终总误差；
-2. direct HiF4 vs cascade HiF4；
-3. direct/PTS 路径 category bar；
-4. 各层 conversion overhead 热图。
+1. FP32 carrier 与 BF16 carrier 的 native conversion NMSE grouped bar；
+2. BF16 carrier 路径 waterfall：carrier projection、HiF4 after BF16、cross term、总损失；
+3. FP32/BF16 carrier 的内部 scale/exponent/payload decision flip 统计；
+4. direct carrier 与 PTS 路径 category bar；
+5. 各层 BF16-minus-FP32 carrier overhead 热图。
 
 #### 5. HiF4 micro-exponent消融
 
@@ -1000,17 +1148,18 @@ identity_residual
 - BF16 penalty、E6M2 penalty、interaction 的 signed bar；
 - 重尾程度与 E6M2 penalty 的关系。
 
-#### 7. S1P2损失占比
+#### 7. S1P2、E2M1与BF16 payload上限
 
 图表：
 
-1. clipping、rounding、interaction 的 signed stacked bar；
-2. P2/P3/P4/continuous 的 NMSE bar；
-3. 可恢复损失比例；
-4. payload code occupancy；
-5. 饱和率和高误差 group 分布。
+1. 主图只比较 S1P2-native、E2M1-native、BF16-range-matched 和 BF16-unclipped，让读者先看清完整格式替换后的结果；
+2. 辅助图再展示 E2M1-fixed、S1P2-search-oracle 和 E2M1-search-oracle，说明不改 S0 与额外搜索分别会带来什么影响；
+3. 展示 E2M1-native 相对 S1P2-native 的误差变化和胜出比例；
+4. 展示 S1P2→BF16-range-matched 和 S1P2→BF16-unclipped 的可恢复损失比例；
+5. 展示 BF16 floor、S1P2 increment 和 interaction 的误差分解；
+6. 展示 S1P2/E2M1 码点使用频率，以及小数值、大数值和接近最大码点区域的误差。
 
-必须在图下写清“冻结 scale/exponent 后的条件分解”。
+必须在图下写清：BF16-range-matched 是冻结标准 scale/exponent 和动态范围后的条件上限；BF16-unclipped 是非4-bit绝对上限。
 
 #### 8. 真实权重深入分析
 
@@ -1083,11 +1232,12 @@ identity_residual
 
 - H11 与当前标准实现逐元素一致；
 - H00/H10/H01/H11 的手算 case；
-- P2/P3/P4/continuous 的边界舍入；
+- S1P2 与 E2M1 码本边界舍入；
+- BF16 range-matched / unclipped payload 行为；
 - 全零、饱和、阈值附近行为；
 - CPU/CUDA 输入一致性。
 
-### Task 3：实现同源格式配对与级联误差分解
+### Task 3：实现同源格式配对与原生载体误差分解
 
 **创建：**
 
@@ -1099,13 +1249,14 @@ identity_residual
 
 **测试恒等式：**
 
-- 同一 BF16 reference；
-- cascade energy identity；
+- 同源格式比较使用同一 BF16 reference；
+- native 转换使用同一 `W_NV^32` reference；
+- BF16 carrier projection + HiF4 + cross-term energy identity；
 - cross term 符号可正可负；
 - paired tensor name/shape 严格一致；
 - global 结果等于 atomic sums 合并。
 
-### Task 4：实现 micro-exponent、scale 和 S1P2 消融
+### Task 4：实现 micro-exponent、scale 和 payload 格式消融
 
 **修改：**
 
@@ -1115,8 +1266,15 @@ identity_residual
 
 - factorial effect 公式；
 - 顺序 gain 与原始四组合一致；
-- S1P2 energy identity；
-- P3/P4 只改变 payload，不改变 scale/exponent map；
+- S1P2 相对 BF16-range-matched 的 energy identity；
+- S1P2-native 的连续 S0 基准为 `amax64/7`；
+- E2M1-native 的连续 S0 基准为 `amax64/24`，并重新计算 exp8/exp4；
+- E2M1-fixed 完全复用 S1P2-native 的 S0/exp8/exp4，只作为辅助消融；
+- S1P2-search-oracle 的结果不劣于 S1P2-native；
+- E2M1-search-oracle 的结果不劣于 E2M1-native；
+- S1P2-search-oracle 与 E2M1-search-oracle 使用相同的候选规模和误差选择逻辑；
+- BF16-range-matched 只改变 payload，不改变 S1P2-native 的 scale/exponent map；
+- FP32-unclipped oracle 近似精确重建；
 - identity residual 在 FP64 容差内。
 
 ### Task 5：建立综合实验编排器
@@ -1143,7 +1301,7 @@ merge-results
 - 结果采用原子写入；
 - 不在内存同时保留全模型全部 reconstruction。
 
-### Task 6：真实 BF16/packed NVFP4 checkpoint 配对
+### Task 6：原始BF16、packed NVFP4与BF16 carrier checkpoint配对
 
 **修改或新增：**
 
@@ -1152,11 +1310,12 @@ merge-results
 
 **要求：**
 
-- 显式传入原始 BF16 路径；
-- 实际 packed NVFP4 解码；
-- 输出 tensor intersection 和 coverage；
+- 原始 BF16 路径仅用于同源格式比较，可在只运行 native conversion 时省略；
+- 实际 packed NVFP4 同时生成 FP32 carrier 与数学 BF16 carrier；
+- 可选传入 `Qmodel/Qwen3.5-27B-NVFP4-BF16`，验证实际 BF16 carrier checkpoint；
+- 分别输出格式比较、native conversion、实际 BF16 carrier验证的 tensor intersection 和 coverage；
 - 代表层预检后再全层；
-- simulated/actual NVFP4 分开保存。
+- simulated NVFP4、actual packed NVFP4、实际 BF16 carrier 分开保存。
 
 ### Task 7：端到端评测入口
 
@@ -1235,6 +1394,7 @@ conda run -n hif4 python ChuanCi/nvfp4_hif4_study.py synthetic \
 conda run -n hif4 python ChuanCi/nvfp4_hif4_study.py real-preflight \
   --bf16-checkpoint "$ORIGINAL_BF16_CHECKPOINT" \
   --nvfp4-checkpoint Qmodel/Qwen3.5-27B-NVFP4 \
+  --nvfp4-bf16-checkpoint Qmodel/Qwen3.5-27B-NVFP4-BF16 \
   --layers 3,31,63 \
   --device cuda \
   --output-dir ChuanCi/results/comprehensive_nvfp4_hif4/real_preflight
@@ -1246,6 +1406,7 @@ conda run -n hif4 python ChuanCi/nvfp4_hif4_study.py real-preflight \
 conda run -n hif4 python ChuanCi/nvfp4_hif4_study.py real-full \
   --bf16-checkpoint "$ORIGINAL_BF16_CHECKPOINT" \
   --nvfp4-checkpoint Qmodel/Qwen3.5-27B-NVFP4 \
+  --nvfp4-bf16-checkpoint Qmodel/Qwen3.5-27B-NVFP4-BF16 \
   --device cuda \
   --output-dir ChuanCi/results/comprehensive_nvfp4_hif4/real_full
 ```
@@ -1267,8 +1428,9 @@ conda run -n hif4 python ChuanCi/render_nvfp4_hif4_report.py \
 停止条件：
 
 - 标准 H11 与旧实现逐元素一致；
-- cascade 分解恒等式通过；
-- S1P2 分解恒等式通过；
+- BF16 carrier projection / HiF4 / cross-term 分解恒等式通过；
+- S1P2 相对 BF16-range-matched 的分解恒等式通过；
+- E2M1-native 的 S0 与两级 exponent 重新计算通过手算测试，E2M1-fixed、两种 search-oracle 和 BF16 upper-bound 路径通过对应校验；
 - E5/E6 重复实验正确聚合；
 - quick synthetic 输出 schema v2。
 
@@ -1278,9 +1440,9 @@ conda run -n hif4 python ChuanCi/render_nvfp4_hif4_report.py \
 
 停止条件：
 
-- BF16 provenance 明确；
-- BF16/NVFP4 tensor intersection 无歧义；
-- 21 个代表 tensor 全部完成；
+- 原始 BF16 provenance 明确，且与 NVFP4-BF16 carrier checkpoint 严格区分；
+- 格式比较、native conversion、实际 BF16 carrier验证三套 tensor coverage 无歧义；
+- 21 个代表 tensor 的 packed NVFP4 FP32/BF16 carrier 路径全部完成；
 - 预检 HTML 能离线打开；
 - 所有主图的数值能从 JSON 反算一致。
 
@@ -1302,7 +1464,8 @@ conda run -n hif4 python ChuanCi/render_nvfp4_hif4_report.py \
 - 标准 HiF4 结果与当前实现完全一致；
 - packed NVFP4 解码继续通过现有交叉验证；
 - 所有能量累计使用 FP64；
-- cascade 与 S1P2 分解 identity residual 小于 `1e-10 × reference_energy` 或更严格的数值容差；
+- BF16 carrier 分解与 S1P2-vs-BF16 分解的 identity residual 小于 `1e-10 × reference_energy` 或更严格的数值容差；
+- FP32-unclipped payload oracle 的残余误差只来自规定的浮点计算路径；
 - 全局指标由原始能量合并得到。
 
 ### 18.2 实验完整性
@@ -1310,8 +1473,8 @@ conda run -n hif4 python ChuanCi/render_nvfp4_hif4_report.py \
 - 同源 BF16→NVFP4 和 BF16→HiF4 主对比完成；
 - micro-exponent 2×2 完成；
 - scale 2×2 完成；
-- S1P2 frozen-grid 分解和 P2/P3/P4 扫描完成；
-- BF16→NVFP4→HiF4 级联分解完成；
+- S1P2-native 与 E2M1-native 主对比完成，E2M1-fixed、两种 search-oracle、BF16-range-matched 和 BF16-unclipped 辅助对比完成；
+- NVFP4→FP32 carrier→HiF4 与 NVFP4→BF16 carrier→HiF4 对比及 BF16 carrier 分解完成；
 - synthetic 与 real 都有结果；
 - 代表层与全层状态分开标注。
 
@@ -1337,8 +1500,9 @@ conda run -n hif4 python ChuanCi/render_nvfp4_hif4_report.py \
 禁止用以下方式下结论：
 
 - 比较不同 reference 的 NMSE；
-- 把级联误差简单相加；
-- 把 P3/P4 当作可部署 HiF4；
+- 把原生 NVFP4 转换写成不存在的 `BF16→NVFP4→HiF4` 链路；
+- 把 E2M1-search-oracle 当作标准 HiF4；
+- 把 BF16 payload 上限当作4-bit可部署结果；
 - 用 GPTQ HiF4 对比 RTN NVFP4 后宣称格式优势；
 - 用 NVFP4 解码后的 BF16 模型当原始 BF16；
 - 用 3 个代表层外推全部 64 层。
@@ -1361,6 +1525,71 @@ ChuanCi/results/comprehensive_nvfp4_hif4/
 
 1. 同等约 4.5 bit/weight 下，NVFP4 与 HiF4 在同源 BF16 权重上的真实差距；
 2. HiF4 的优势来自层级 micro-exponent 还是其他部分；
-3. S1P2 在固定层级 scale 后占多少残余误差，提高 payload 精度能追回多少；
-4. NVFP4 转 HiF4 的额外损失由转换项还是与原 NVFP4 误差的交叉项主导；
-5. 这些权重域结论是否转化为输出误差、PPL 和任务准确率差异。
+3. S1P2 换成 E2M1 后是否更准，固定层级与 E2M1-aware 重调的结论是否一致；
+4. payload 保持 BF16 时，同范围条件上限和无裁剪绝对上限分别是多少；
+5. 原生 NVFP4 经 FP32 或 BF16 载体转 HiF4 的损失差多少，BF16 carrier 投影是否会改变层级决策；
+6. 这些权重域结论是否转化为输出误差、PPL 和任务准确率差异。
+
+## 20. 2026-07-27 本轮实际完成状态
+
+本轮完成的是权重域分析报告主线，不包含端到端 PPL、下游任务或全 64 层外推。
+
+### 20.1 新增正式实验
+
+- 合成数据和真实 packed NVFP4 权重均加入 `group_size={16,32,64}` 消融；
+- 三种 group 均保留完整三级量化：S1P2 payload、每 8 元素指数、每 4 元素指数；
+- 真实结果按 global、category、layer、tensor 四个层级聚合；
+- 所有总体 NMSE 由 FP64 误差能量和参考能量合并后计算，不平均张量 NMSE。
+
+### 20.2 正式运行配置
+
+- Conda：`hif4`；
+- PyTorch：`2.10.0+cu128`；
+- device：CUDA；
+- 合成数据：4 种分布，每种每次 320,000 元素，10 repeats；
+- 真实 checkpoint：`Qmodel/Qwen3.5-27B-NVFP4`；
+- 层：3、31、63；
+- 张量：21 个；
+- 权重元素：1,116,733,440。
+
+### 20.3 group size 主要结果
+
+真实 packed 权重：
+
+| group | NMSE |
+|---:|---:|
+| 64 | 0.0070349210 |
+| 32 | 0.0067972221 |
+| 16 | 0.0066025754 |
+
+- 64→32：相对降低 3.3788%；
+- 32→16：相对降低 2.8636%；
+- 64→16：恢复标准 g64 误差的 6.1457%；
+- 边际收益递减。
+
+合成 NVFP4 输入的 64→16 恢复比例：
+
+- Gaussian：4.12%；
+- Laplace：8.09%；
+- Student-t3：15.16%；
+- 0.1%×20 离群值：18.84%。
+
+这说明顶层 64 元素共享范围确实造成损失，但其重要性高度依赖重尾和离群结构。真实权重上的总体影响明显小于 S1P2 payload 码点误差。
+
+### 20.4 当前误差研发优先级
+
+真实权重上的可恢复 NMSE 机会：
+
+1. S1P2 范围内码点离散：0.0063855241；
+2. group 64→16：0.0004323457；
+3. hardware S0 相对连续 S0：0.0001051811；
+4. BF16 中转载体：0.0000026324。
+
+这些数值不是正交可加的误差分解，而是各控制变量实验提供的可恢复机会。现有证据支持优先研究码点感知量化、HiF4-aware 局部平滑和最终三级误差搜索，不支持把单独提高 BF16/S0 计算精度作为首要方向。
+
+### 20.5 输出
+
+- JSON：`ChuanCi/results/comprehensive_nvfp4_hif4/final/NVFP4_HiF4_comprehensive_results.json`；
+- HTML：`ChuanCi/results/comprehensive_nvfp4_hif4/final/NVFP4_HiF4_comprehensive_report.html`。
+
+HTML 已重构为“研究问题—实验设计—结果—机理解释—结论—算法含义”的分析报告，并加入汇报摘要、论文式实验设置、误差来源综合排序、算法指导和有效性边界。

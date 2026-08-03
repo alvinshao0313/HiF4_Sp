@@ -164,7 +164,11 @@ def _load_quantized_model(model, path: str) -> None:
 
 
 def _is_excluded_layer(name: str, exclude_layers: list[str]) -> bool:
-    return name in exclude_layers
+    """Exact name or module-suffix match (e.g. ``gate_proj`` matches ``model.layers.0.mlp.gate_proj``)."""
+    for exclude in exclude_layers:
+        if name == exclude or name.endswith("." + exclude):
+            return True
+    return False
 
 
 def _hif4_weight_qtype(weight_format: str) -> str:
@@ -305,7 +309,12 @@ def arg_parser(interactive: bool = True) -> argparse.Namespace:
         help="HiF4 weight fake quant format for RTN/GPTQ.",
     )
     parser.add_argument("--hif4a", type=str2bool, default=False, help="Enable HiF4 input activation fake quantization")
-    parser.add_argument("--exclude-layers", nargs="*", default=["lm_head"], help="Exact layer names to skip")
+    parser.add_argument(
+        "--exclude-layers",
+        nargs="*",
+        default=["lm_head"],
+        help="Layer names to skip (exact match or module suffix, e.g. gate_proj).",
+    )
     parser.add_argument("--disable-fast-forward", action="store_true", help="Disable QLinear2 fast-forward path")
 
     parser.add_argument("--gptq", type=str2bool, default=False)

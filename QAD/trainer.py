@@ -85,6 +85,9 @@ class HiF4QADTrainer(Trainer):
         confidence_k: int = 16,
         lafd_topk: int = 3,
         logit_chunk_size: int = 512,
+        kl_mode: str = "eakld",
+        kl_topk: int = 0,
+        kl_post_attn: bool = False,
         loss_lm_head: nn.Module | None = None,
         **kwargs: Any,
     ) -> None:
@@ -96,6 +99,9 @@ class HiF4QADTrainer(Trainer):
         self.confidence_k = int(confidence_k)
         self.lafd_topk = int(lafd_topk)
         self.logit_chunk_size = int(logit_chunk_size)
+        self.kl_mode = str(kl_mode)
+        self.kl_topk = int(kl_topk)
+        self.kl_post_attn = bool(kl_post_attn)
         self.loss_lm_head = loss_lm_head
         self._last_loss_dict: dict[str, float] = {}
 
@@ -209,6 +215,9 @@ class HiF4QADTrainer(Trainer):
             lafd_alpha=self.lafd_alpha,
             temperature=self.temperature,
             confidence_k=self.confidence_k,
+            kl_mode=self.kl_mode,
+            kl_topk=self.kl_topk,
+            kl_post_attn=self.kl_post_attn,
         )
         del teacher_last_cpu, teacher_lafd_cpu
         # HF Trainer 要求 loss 在 inputs 所在设备（通常是第一张卡）

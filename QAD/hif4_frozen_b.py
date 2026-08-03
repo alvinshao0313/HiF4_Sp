@@ -22,7 +22,13 @@ for _p in (_SCALE_TUNING_DIR, _CHUANCI_DIR):
     if s not in sys.path:
         sys.path.insert(0, s)
 
-from nvfp4_hif4_torch import HiF4Config, quantize_hif4  # noqa: E402
+from nvfp4_hif4_torch import (  # noqa: E402
+    E6M2_VALUES,
+    HiF4Config,
+    quantize_hif4,
+    round_bfloat16,
+    round_e6m2,
+)
 
 from hif4_fixed_s0 import apply_e6m2_ste  # noqa: E402
 
@@ -33,12 +39,102 @@ __all__ = [
 ]
 
 
+def _e6m2_step_up(values: torch.Tensor, steps: int) -> torch.Tensor:
+    """把 e6m2 网格上的正值向上走 steps 格；超出码本顶端返回 inf。"""
+    book = E6M2_VALUES.to(device=values.device, dtype=torch.float32)
+    idx = torch.searchsorted(book, values.clamp_min(book[0]))
+    idx = idx.clamp_max(book.numel() - 1)
+    if not bool((book[idx] == values).all()):
+        raise ValueError("s0 estimate is not on the e6m2 codebook")
+    nxt = idx + int(steps)
+    out = torch.full_like(values, torch.inf)
+    ok = nxt < book.numel()
+    out[ok] = book[nxt[ok]]
+    return out
+
+
+def _on_canonical_hif4_grid(b: torch.Tensor) -> torch.Tensor:
+    """逐元素检查 b 是否为 canonical payload×2^e：|b| ∈ {0} ∪ {p×2^m, p∈{0.25..1.75 步长0.25}, m∈{0,1,2}}。"""
+    a = b.abs()
+    zero = a == 0
+    m0 = (a >= 0.25) & (a <= 1.75) & ((a * 4.0) == torch.round(a * 4.0))
+    m1 = (a >= 2.0) & (a <= 3.5) & ((a * 2.0) == torch.round(a * 2.0))
+    m2 = (a >= 4.0) & (a <= 7.0) & (a == torch.round(a))
+    return zero | m0 | m1 | m2
+
+
+def _recover_s0_and_b_exact(
+    weight: torch.Tensor,
+    *,
+    config: HiF4Config,
+    max_step_up: int = 8,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """已在 HiF4 网格上的权重的精确分解：e6m2(s0) ⊙ B == weight，B 为 canonical payload×2^e。
+
+    量化器本身不幂等（bf16 倒数使 e8/e4 阈值在边界翻转），不能靠重新量化恢复网格；
+    这里按组从 s0 公式估计值向上步进搜索，取满足精确分解的最大 s0。
+    输入不在 canonical HiF4 网格上时直接报错。
+    """
+    if int(config.group_dim) != -1:
+        raise ValueError(f"exact grid recovery only supports group_dim=-1, got {config.group_dim}")
+    if config.hierarchy_format != "s1p2" or config.payload_format != "s1p2":
+        raise ValueError(
+            f"exact grid recovery only supports s1p2 hierarchy/payload, got "
+            f"hierarchy={config.hierarchy_format} payload={config.payload_format}"
+        )
+    group_size = int(config.group_size)
+    out_f, in_f = int(weight.shape[0]), int(weight.shape[1])
+    ng = in_f // group_size
+    w = weight.detach().to(device="cpu", dtype=torch.float32)
+    groups = w.reshape(out_f, ng, group_size)
+    amax = groups.abs().amax(dim=-1)
+    nonzero = amax > 0
+
+    # 与 quantize_hif4 hardware 模式相同的 s0 估计：e6m2(bf16(amax * bf16(1/7)))
+    recip = round_bfloat16(torch.tensor(1.0 / 7.0))
+    s0_est = round_e6m2(round_bfloat16(amax * recip))
+    s0_est = torch.where(nonzero, s0_est, torch.ones_like(s0_est))
+
+    chosen = s0_est.clone()
+    resolved = ~nonzero  # 零组：s0=1, B=0
+    cand = s0_est
+    for _ in range(int(max_step_up) + 1):
+        cand = torch.where(resolved, chosen, cand)
+        b = groups / cand.unsqueeze(-1)
+        exact = round_bfloat16(b) * cand.unsqueeze(-1) == groups
+        valid = (exact & _on_canonical_hif4_grid(b)).all(dim=-1)
+        chosen = torch.where(valid, cand, chosen)
+        resolved = resolved | valid
+        if bool(resolved.all()):
+            break
+        cand = _e6m2_step_up(cand, 1)
+    if not bool(resolved.all()):
+        bad = (~resolved).nonzero()[0].tolist()
+        raise ValueError(
+            f"exact HiF4 grid recovery failed at group (row={bad[0]}, group={bad[1]}): "
+            "init weight is not on the canonical HiF4 grid "
+            "(only hif4-format pseudo-quant ckpts are supported; hif4-1 等其它格式请在量化侧对齐)"
+        )
+
+    frozen_b = round_bfloat16(groups / chosen.unsqueeze(-1)).reshape(out_f, in_f)
+    recon = (chosen.unsqueeze(-1) * frozen_b.reshape(out_f, ng, group_size).float()).reshape(out_f, in_f)
+    if not torch.equal(recon, w):
+        raise ValueError("exact HiF4 grid recovery internal error: e6m2(s0)*B != weight")
+    return chosen.to(dtype=torch.float32), frozen_b.to(dtype=weight.dtype)
+
+
 def build_frozen_b_and_s0(
     weight: torch.Tensor,
     *,
     config: HiF4Config = HiF4Config(),
+    exact_grid: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """一次量化：返回 (s0_init, frozen_B)，B 与 weight 同形状。"""
+    """初始化分解：返回 (s0_init, frozen_B)，B 与 weight 同形状。
+
+    exact_grid=False：对 BF16 权重做一次 HiF4 量化（RTN 初始化，量化损失符合预期）。
+    exact_grid=True：输入必须是已在 canonical HiF4 网格上的伪量化 ckpt，
+        逐组恢复 s0 并精确分解，保证 e6m2(s0)⊙B == weight 逐 bit 相等；否则报错。
+    """
     if weight.ndim != 2:
         raise ValueError(f"weight must be 2D, got {tuple(weight.shape)}")
     group_size = int(config.group_size)
@@ -47,6 +143,8 @@ def build_frozen_b_and_s0(
         raise ValueError(f"in_features={in_f} not divisible by group_size={group_size}")
 
     with torch.no_grad():
+        if exact_grid:
+            return _recover_s0_and_b_exact(weight, config=config)
         # 在 CPU 上量化，避免 GPU 上再开一份 float32 峰值
         w_cpu = weight.detach().to(device="cpu", dtype=torch.float32)
         result = quantize_hif4(w_cpu, config=config)
@@ -118,7 +216,11 @@ class HiF4FrozenBLinear(nn.Module):
             )
 
         quant_src = self.teacher_weight if init_weight is None else init_weight.detach()
-        s0_init, frozen_b = build_frozen_b_and_s0(quant_src, config=config)
+        # 伪量化 ckpt 初始化必须精确恢复网格（训练起点 ≡ ckpt）；
+        # 非 HiF4 网格的 ckpt（如 hif4-1）会在恢复时报错
+        s0_init, frozen_b = build_frozen_b_and_s0(
+            quant_src, config=config, exact_grid=init_weight is not None
+        )
         # S0 训练态固定 float32，避免 bf16 梯度溢出
         self.s0_continuous = nn.Parameter(
             s0_init.detach().to(dtype=torch.float32),

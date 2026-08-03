@@ -17,7 +17,11 @@ if str(BLOCK_SPARSE_ROOT) not in sys.path:
     sys.path.insert(0, str(BLOCK_SPARSE_ROOT))
 
 from block_pruning.calibration import build_calibration_batches  # noqa: E402
-from block_pruning.config import CALIBRATION_DATASETS, GradientBlockPruningConfig  # noqa: E402
+from block_pruning.config import (  # noqa: E402
+    CALIBRATION_DATASETS,
+    GradientBlockPruningConfig,
+    parse_projection_prune_shares,
+)
 from block_pruning.gradient_scorer import (  # noqa: E402
     collect_magnitude_block_scores,
     collect_mlp_block_scores,
@@ -32,10 +36,14 @@ from block_pruning.mask_apply import apply_mlp_block_masks, verify_masks_and_wei
 from block_pruning.mlp_permutation import prepare_and_apply_mlp_permutations  # noqa: E402
 from block_pruning.mlp_registry import collect_mlp_linears, initialize_all_one_masks  # noqa: E402
 from block_pruning.model_loader import load_model_and_tokenizer  # noqa: E402
+from block_pruning.residual_permutation import (  # noqa: E402
+    prepare_and_apply_residual_permutation,
+)
 from block_pruning.serialization import (  # noqa: E402
     save_hybrid_round_artifacts,
     save_mlp_permutation_artifacts,
     save_pruned_model,
+    save_residual_permutation_artifacts,
     save_round_artifacts,
 )
 from block_pruning.wanda_scorer import collect_wanda_block_scores  # noqa: E402
@@ -94,12 +102,50 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--min_keep_blocks_per_matrix", type=int, default=1)
     p.add_argument("--share_up_gate_mask", action="store_true")
     p.add_argument(
+        "--projection_prune_shares",
+        type=str,
+        default="",
+        help="Optional prune-budget shares across projections, e.g. "
+        "'gate_proj=1,up_proj=1,down_proj=2'. Empty = global ranking (legacy).",
+    )
+    p.add_argument(
         "--mlp_permutation",
         type=str,
         default="none",
         choices=["none", "wanda_shared"],
         help="none | wanda_shared: one-time shared Wanda sort of FFN intermediate "
         "dim before mask init (up/gate rows + matching down cols).",
+    )
+    p.add_argument(
+        "--residual_permutation",
+        type=str,
+        default="none",
+        choices=["none", "block_loss"],
+        help="none | block_loss: global residual-hidden permutation minimizing "
+        "sum of pruned block scores (applied before mlp_permutation).",
+    )
+    p.add_argument(
+        "--residual_perm_search_steps",
+        type=int,
+        default=2000,
+        help="Channel-swap search steps for residual_permutation=block_loss.",
+    )
+    p.add_argument(
+        "--residual_channel_agg",
+        type=str,
+        default="equal",
+        choices=[
+            "equal",
+            "layer_fisher",
+            "matrix_fisher",
+            "raw_wanda",
+            "sparsity_raw_wanda",
+            "density_raw_wanda",
+        ],
+        help="π0 residual-channel aggregation: equal (L1-norm then sum), "
+        "layer_fisher / matrix_fisher (Fisher-weighted), raw_wanda (no L1), "
+        "sparsity_raw_wanda (raw Wanda × ρ_m), "
+        "density_raw_wanda (raw Wanda × (1 − ρ_m)).",
     )
     p.add_argument("--pruning_rounds", type=int, default=1)
     p.add_argument("--seed", type=int, default=42)
@@ -116,6 +162,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def args_to_config(args: argparse.Namespace) -> GradientBlockPruningConfig:
+    shares_raw = str(args.projection_prune_shares).strip()
+    shares = parse_projection_prune_shares(shares_raw) if shares_raw else None
     cfg = GradientBlockPruningConfig(
         model_path=args.model_path,
         calibration_dataset=args.calibration_dataset,
@@ -129,8 +177,12 @@ def args_to_config(args: argparse.Namespace) -> GradientBlockPruningConfig:
         max_prune_ratio_per_matrix=args.max_prune_ratio_per_matrix,
         min_keep_blocks_per_matrix=args.min_keep_blocks_per_matrix,
         share_up_gate_mask=bool(args.share_up_gate_mask),
+        projection_prune_shares=shares,
         pruning_rounds=args.pruning_rounds,
         mlp_permutation=args.mlp_permutation,
+        residual_permutation=args.residual_permutation,
+        residual_perm_search_steps=args.residual_perm_search_steps,
+        residual_channel_agg=args.residual_channel_agg,
         seed=args.seed,
         dtype=args.dtype,
         device=args.device,
@@ -289,6 +341,29 @@ def main() -> None:
 
     artifacts_dir = output_dir / "pruning_artifacts"
     artifacts_dir.mkdir(parents=True, exist_ok=True)
+
+    if config.residual_permutation == "block_loss":
+        print(
+            "[prune] applying residual block-loss permutation "
+            f"(search_steps={config.residual_perm_search_steps})",
+            flush=True,
+        )
+        residual_record = prepare_and_apply_residual_permutation(
+            model=model,
+            batches=batches,
+            targets=targets,
+            config=config,
+        )
+        save_residual_permutation_artifacts(
+            output_dir=artifacts_dir,
+            record=residual_record,
+            config=config,
+        )
+        print(
+            f"[prune] residual permutation applied "
+            f"(L {residual_record.loss_init:.6g} -> {residual_record.loss_final:.6g})",
+            flush=True,
+        )
 
     if config.mlp_permutation == "wanda_shared":
         print("[prune] applying shared Wanda MLP intermediate permutation", flush=True)

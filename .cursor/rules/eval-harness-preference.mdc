@@ -1,0 +1,32 @@
+---
+description: 下游评测工具偏好：非 reasoning 用 lm_eval，reasoning（含 MMLU-Pro）用 lighteval
+alwaysApply: true
+---
+
+# 下游任务评测偏好
+
+本仓库做模型下游评测时，必须按任务类型选工具，不要混用：
+
+## lm_eval（非 reasoning / 普通下游）
+
+适用于选择题、准确率类、非长推理生成任务，例如：
+
+- ARC-Easy / ARC-Challenge
+- MMLU（标准 mmlu，非 mmlu_pro）
+- 同类 loglikelihood / 短答案准确率任务
+
+默认用法对齐现有实验：0-shot，HF 路径（可按需加 fake act quant）。
+
+## lighteval（reasoning 任务）
+
+适用于需要生成式推理的任务，**必须**走仓库根目录 `main.py`（vLLM + lighteval），例如：
+
+- **MMLU-Pro**（`mmlu_pro|0`，`max_samples=300`）
+- GSM8K 及其他 reasoning / 长生成评测
+
+对齐现有消融脚本参数习惯（如 `--disable_thinking`、`--fake_act_quant hif4` 等按方案配置）。
+
+## 禁止
+
+- 禁止用 lm_eval 跑 MMLU-Pro（会导致按子学科重复 limit、样本数爆炸）。
+- 禁止把本应 reasoning 的任务改成 lm_eval「凑合跑」。

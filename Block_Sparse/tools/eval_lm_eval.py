@@ -77,10 +77,22 @@ def parse_args() -> argparse.Namespace:
 
 
 def _pick_metric(task_result: dict) -> tuple[str, float | None]:
-    """Prefer acc then acc_norm (lm_eval key style: 'acc,none')."""
-    for key in ("acc,none", "acc", "acc_norm,none", "acc_norm"):
+    """Prefer acc then acc_norm then exact_match (lm_eval key style: 'acc,none')."""
+    for key in (
+        "acc,none",
+        "acc",
+        "acc_norm,none",
+        "acc_norm",
+        "exact_match,custom-extract",
+        "exact_match,none",
+        "exact_match",
+    ):
         if key in task_result and isinstance(task_result[key], (int, float)):
             return key, float(task_result[key])
+    # Fallback: first exact_match* float key (mmlu_pro filter variants).
+    for key, val in task_result.items():
+        if key.startswith("exact_match") and isinstance(val, (int, float)):
+            return key, float(val)
     return "", None
 
 
@@ -171,12 +183,14 @@ def main() -> None:
     payload["arc_easy"] = scores.get("arc_easy")
     payload["arc_challenge"] = scores.get("arc_challenge")
     payload["mmlu"] = scores.get("mmlu")
+    payload["mmlu_pro"] = scores.get("mmlu_pro")
 
     print(
         f"[lm_eval] DONE "
         f"arc_easy={payload['arc_easy']} "
         f"arc_challenge={payload['arc_challenge']} "
         f"mmlu={payload['mmlu']} "
+        f"mmlu_pro={payload['mmlu_pro']} "
         f"time={elapsed:.1f}s",
         flush=True,
     )

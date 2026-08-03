@@ -212,6 +212,12 @@ class UnquantizedLinearMethod(LinearMethodBase):
         self.nvf4_activation_scales_path = additional_config.get(
             "nvf4_activation_scales_path"
         )
+        raw_exclude = additional_config.get("fake_act_quant_exclude", ["lm_head"])
+        if raw_exclude is None:
+            raw_exclude = ["lm_head"]
+        if isinstance(raw_exclude, str):
+            raw_exclude = [x.strip() for x in raw_exclude.split(",") if x.strip()]
+        self.fake_act_quant_exclude = list(raw_exclude)
         if self.nvf4_fake_act:
             if not self.nvf4_activation_scales_path:
                 raise ValueError(
@@ -224,18 +230,30 @@ class UnquantizedLinearMethod(LinearMethodBase):
                 )
 
     @staticmethod
-    def _skip_fake_act(layer: torch.nn.Module) -> bool:
+    def _prefix_matches_exclude(prefix: str, exclude: str) -> bool:
+        if prefix == exclude or prefix.endswith("." + exclude):
+            return True
+        # vLLM fuses gate/up into gate_up_proj; shared input cannot be half-skipped.
+        if exclude in ("gate_proj", "up_proj") and (
+            prefix == "gate_up_proj" or prefix.endswith(".gate_up_proj")
+        ):
+            return True
+        return False
+
+    def _skip_fake_act(self, layer: torch.nn.Module) -> bool:
         prefix = getattr(layer, "prefix", "")
-        return (
+        if (
             prefix == "lm_head"
             or prefix.endswith(".lm_head")
             or ".lm_head." in prefix
-        )
+        ):
+            return True
+        excludes = getattr(self, "fake_act_quant_exclude", ["lm_head"])
+        return any(self._prefix_matches_exclude(prefix, ex) for ex in excludes)
 
-    @classmethod
-    def _skip_nvf4_fake_act(cls, layer: torch.nn.Module) -> bool:
+    def _skip_nvf4_fake_act(self, layer: torch.nn.Module) -> bool:
         prefix = getattr(layer, "prefix", "")
-        return cls._skip_fake_act(layer) or ".linear_attn." in prefix
+        return self._skip_fake_act(layer) or ".linear_attn." in prefix
 
     @classmethod
     def _load_nvf4_activation_scales(cls, path: str) -> dict[str, torch.Tensor]:

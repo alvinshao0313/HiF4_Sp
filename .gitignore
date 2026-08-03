@@ -57,10 +57,23 @@ wandb/
 .idea/
 
 # Local Codex / agent state
-.codex
 .codex/
 AGENTS.md
 Block_Sparse/outputs/
 Block_Sparse/experiments/
 Block_Sparse/outputs/
 Block_Sparse/tests/
+**/experiments/
+**/outputs/
+**/tests/
+**/data/
+**/models/
+**/results/
+**/logs/
+**/checkpoints/
+**/cache/
+**/temp/
+**/backup/
+**/.result/
+**/plans/
+**/plan/

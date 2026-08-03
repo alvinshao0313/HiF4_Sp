@@ -13,6 +13,7 @@ from block_pruning.gradient_scorer import BlockScoreRecord
 from block_pruning.mask_allocator import MaskAllocationResult
 from block_pruning.mlp_permutation import MLPIntermediatePermutationRecord
 from block_pruning.mlp_registry import MLPLinearTarget
+from block_pruning.residual_permutation import ResidualPermutationRecord
 
 
 def save_score_records(
@@ -62,7 +63,11 @@ def build_pruning_summary(
         "score_type": config.score_type,
         "selection_mode": config.selection_mode,
         "share_up_gate_mask": config.share_up_gate_mask,
+        "projection_prune_shares": config.projection_prune_shares,
         "mlp_permutation": config.mlp_permutation,
+        "residual_permutation": config.residual_permutation,
+        "residual_perm_search_steps": config.residual_perm_search_steps,
+        "residual_channel_agg": config.residual_channel_agg,
         "max_prune_ratio_per_matrix": config.max_prune_ratio_per_matrix,
         "min_keep_blocks_per_matrix": config.min_keep_blocks_per_matrix,
         "calibration_dataset": config.calibration_dataset,
@@ -197,6 +202,51 @@ def save_mlp_permutation_artifacts(
         "permutation_applied_before_pruning": True,
     }
     save_pruning_summary(summary, output_dir / "mlp_permutation_summary.json")
+
+
+def save_residual_permutation_artifacts(
+    output_dir: str | Path,
+    record: ResidualPermutationRecord,
+    config: GradientBlockPruningConfig,
+) -> None:
+    """Save global residual-hidden permutation artifacts."""
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    payload = {
+        "hidden_size": record.hidden_size,
+        "permutation": record.permutation.cpu().clone(),
+        "inverse_permutation": record.inverse_permutation.cpu().clone(),
+        "channel_score": record.channel_score.cpu().clone(),
+        "loss_init": record.loss_init,
+        "loss_final": record.loss_final,
+        "search_steps": record.search_steps,
+        "accepted_swaps": record.accepted_swaps,
+        "mount_names": list(record.mount_names),
+        "search_score_mode": record.search_score_mode,
+        "channel_agg": record.channel_agg,
+    }
+    torch.save(payload, output_dir / "residual_permutation.pt")
+
+    summary = {
+        "permutation_type": config.residual_permutation,
+        "permutation_axis": "residual_hidden_dimension",
+        "hidden_size": record.hidden_size,
+        "search_score_mode": record.search_score_mode,
+        "channel_agg": record.channel_agg,
+        "loss_init": record.loss_init,
+        "loss_final": record.loss_final,
+        "search_steps": record.search_steps,
+        "accepted_swaps": record.accepted_swaps,
+        "num_mounts": len(record.mount_names),
+        "applied_once_before_mlp_permutation": True,
+        "export_coordinate_system": "permuted",
+        "residual_permutation": config.residual_permutation,
+        "residual_perm_search_steps": config.residual_perm_search_steps,
+        "residual_channel_agg": config.residual_channel_agg,
+        "permutation_applied_before_pruning": True,
+    }
+    save_pruning_summary(summary, output_dir / "residual_permutation_summary.json")
 
 
 def save_round_artifacts(

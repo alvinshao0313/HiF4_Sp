@@ -70,7 +70,7 @@ for method in "${METHODS[@]}"; do
     # 按 PRUNE_GPUS（即 CUDA_VISIBLE_DEVICES）在可见卡上自动切分
     echo "[prune] CUDA_VISIBLE_DEVICES=${PRUNE_GPUS}"
     CUDA_VISIBLE_DEVICES="${PRUNE_GPUS}" python \
-      Block_Sparse/scripts/score_and_prune_mlp.py \
+      Block_Sparse/tools/score_and_prune_mlp.py \
       --model_path "${MODEL_PATH}" \
       --output_dir "${out_dir}" \
       --score_type "${method}" \
@@ -91,7 +91,7 @@ for method in "${METHODS[@]}"; do
     lm_eval_log="${RESULT_ROOT}/${tag}_arc_mmlu.log"
     echo "[lm_eval] CUDA_VISIBLE_DEVICES=${EVAL_GPUS} tasks=${LM_EVAL_TASKS}"
     CUDA_VISIBLE_DEVICES="${EVAL_GPUS}" python \
-      Block_Sparse/scripts/eval_lm_eval.py \
+      Block_Sparse/tools/eval_lm_eval.py \
       --model_path "${out_dir}" \
       --tasks "${LM_EVAL_TASKS}" \
       --num_fewshot "${LM_EVAL_NUM_FEWSHOT}" \
@@ -104,7 +104,7 @@ for method in "${METHODS[@]}"; do
     ppl_log="${RESULT_ROOT}/${tag}_${PPL_DATASET}_s${PPL_SEQ_LEN}.log"
     echo "[ppl] CUDA_VISIBLE_DEVICES=${EVAL_GPUS} dataset=${PPL_DATASET} seq=${PPL_SEQ_LEN}"
     CUDA_VISIBLE_DEVICES="${EVAL_GPUS}" python \
-      Block_Sparse/scripts/eval_ppl.py \
+      Block_Sparse/tools/eval_ppl.py \
       --model_path "${out_dir}" \
       --dataset "${PPL_DATASET}" \
       --sequence_length "${PPL_SEQ_LEN}" \

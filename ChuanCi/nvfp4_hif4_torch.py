@@ -32,6 +32,10 @@ class HiF4Config:
     group_dim: int = -1
     scale_mode: str = "hardware"
     compute_dtype: torch.dtype = torch.float32
+    payload_format: str = "s1p2"
+    hierarchy_format: str = "s1p2"
+    enable_exp8: bool = True
+    enable_exp4: bool = True
 
 
 @dataclass(frozen=True)
@@ -88,6 +92,8 @@ SCHEMA_VERSION = 1
 IMPLEMENTATION = "greenfield_torch"
 
 VALID_SCALE_MODES = frozenset({"continuous", "bf16_math", "e6m2_only", "hardware"})
+VALID_PAYLOAD_FORMATS = frozenset({"s1p2", "e2m1", "bf16_range_matched", "bf16_unclipped"})
+VALID_HIERARCHY_FORMATS = frozenset({"s1p2", "e2m1"})
 
 SKIP_REASONS = (
     "not_requested",
@@ -242,6 +248,10 @@ def _validate_hif4_inputs(values: torch.Tensor, config: HiF4Config) -> None:
         raise ValueError("compute_dtype must be torch.float32")
     if config.scale_mode not in VALID_SCALE_MODES:
         raise ValueError(f"scale_mode must be one of {sorted(VALID_SCALE_MODES)}")
+    if config.payload_format not in VALID_PAYLOAD_FORMATS:
+        raise ValueError(f"payload_format must be one of {sorted(VALID_PAYLOAD_FORMATS)}")
+    if config.hierarchy_format not in VALID_HIERARCHY_FORMATS:
+        raise ValueError(f"hierarchy_format must be one of {sorted(VALID_HIERARCHY_FORMATS)}")
     # 先按原始 ndim 判定越界，再做负索引归一化，避免 group_dim=3 对 2D 被 % 吃掉。
     if config.group_dim < -values.ndim or config.group_dim >= values.ndim:
         raise ValueError("group_dim out of range")
@@ -262,17 +272,19 @@ def _restore_from_last(moved: torch.Tensor, normalized_dim: int, original_ndim: 
     return moved.movedim(-1, normalized_dim)
 
 
-def _compute_top_scale(amax64: torch.Tensor, scale_mode: str) -> torch.Tensor:
+def _compute_top_scale(amax64: torch.Tensor, scale_mode: str, divisor: float = 7.0) -> torch.Tensor:
     """按 scale_mode 计算每组顶层 S0。"""
     if scale_mode == "continuous":
-        s0 = amax64 / 7.0
+        s0 = amax64 / divisor
         return s0
     if scale_mode == "bf16_math":
-        return round_bfloat16(amax64 * round_bfloat16(torch.tensor(1.0 / 7.0, device=amax64.device)))
+        reciprocal_divisor = round_bfloat16(torch.tensor(1.0 / divisor, device=amax64.device))
+        return round_bfloat16(amax64 * reciprocal_divisor)
     if scale_mode == "e6m2_only":
-        return round_e6m2(amax64 / 7.0)
+        return round_e6m2(amax64 / divisor)
     if scale_mode == "hardware":
-        bf16_ratio = round_bfloat16(amax64 * round_bfloat16(torch.tensor(1.0 / 7.0, device=amax64.device)))
+        reciprocal_divisor = round_bfloat16(torch.tensor(1.0 / divisor, device=amax64.device))
+        bf16_ratio = round_bfloat16(amax64 * reciprocal_divisor)
         return round_e6m2(bf16_ratio)
     raise ValueError(f"unsupported scale_mode: {scale_mode}")
 
@@ -302,8 +314,9 @@ def quantize_hif4(
     amax64 = abs_g.amax(dim=-1)
     nonzero = amax64 > 0
 
+    hierarchy_divisor = 7.0 if config.hierarchy_format == "s1p2" else 24.0
     # 顶层 S0：按 scale_mode 走 continuous / BF16 / E6M2 / hardware。
-    s0 = _compute_top_scale(amax64, config.scale_mode)
+    s0 = _compute_top_scale(amax64, config.scale_mode, hierarchy_divisor)
     safe_s0 = torch.where(nonzero, s0, torch.ones_like(s0))
     # hardware/bf16_math 用 BF16 reciprocal，对齐现有 quant_hifx 路径。
     reciprocal = _compute_reciprocal_scale(safe_s0, config.scale_mode)
@@ -314,17 +327,32 @@ def quantize_hif4(
     abs_4 = abs_g.reshape(num_groups, group_size // 4, 4)
     amax4 = abs_4.amax(dim=-1)
 
-    e8 = (amax8 * reciprocal.unsqueeze(-1) >= 4.0).to(torch.float32)
+    if config.enable_exp8:
+        e8 = (amax8 * reciprocal.unsqueeze(-1) >= 4.0).to(torch.float32)
+    else:
+        e8 = torch.zeros_like(amax8)
     e8_per4 = e8.repeat_interleave(2, dim=-1)
-    e4 = (amax4 * reciprocal.unsqueeze(-1) / (2.0**e8_per4) >= 2.0).to(torch.float32)
+    if config.enable_exp4:
+        e4 = (amax4 * reciprocal.unsqueeze(-1) / (2.0**e8_per4) >= 2.0).to(torch.float32)
+    else:
+        e4 = torch.zeros_like(amax4)
 
     e8_elem = e8.repeat_interleave(8, dim=-1)
     e4_elem = e4.repeat_interleave(4, dim=-1)
     local_scale = safe_s0.unsqueeze(-1) * (2.0 ** (e8_elem + e4_elem))
 
-    # S1P2 payload：round(4*|x|/S_i)/4，并饱和到 1.75。
-    ratio = torch.floor(4.0 * abs_g * (reciprocal.unsqueeze(-1) / (2.0 ** (e8_elem + e4_elem))) + 0.5) / 4.0
-    payload = torch.minimum(ratio, torch.full_like(ratio, 1.75))
+    normalized = abs_g * (reciprocal.unsqueeze(-1) / (2.0 ** (e8_elem + e4_elem)))
+    if config.payload_format == "s1p2":
+        ratio = torch.floor(4.0 * normalized + 0.5) / 4.0
+        payload = torch.minimum(ratio, torch.full_like(ratio, 1.75))
+    elif config.payload_format == "e2m1":
+        payload = quantize_e2m1_magnitude(normalized)
+    elif config.payload_format == "bf16_range_matched":
+        payload = round_bfloat16(normalized.clamp(max=1.75))
+    elif config.payload_format == "bf16_unclipped":
+        payload = round_bfloat16(normalized)
+    else:
+        raise ValueError(f"unsupported payload_format: {config.payload_format}")
     recon = groups.sign() * local_scale * payload
     recon = torch.where(nonzero.unsqueeze(-1), recon, torch.zeros_like(recon))
 

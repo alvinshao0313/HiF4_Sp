@@ -46,7 +46,7 @@ for model in "${MODELS[@]}"; do
     continue
   fi
   echo "======== lm_eval ${model} -> ${out_json} ========"
-  CUDA_VISIBLE_DEVICES="${GPUS}" python Block_Sparse/scripts/eval_lm_eval.py \
+  CUDA_VISIBLE_DEVICES="${GPUS}" python Block_Sparse/tools/eval_lm_eval.py \
     --model_path "${model}" \
     --tasks "${TASKS}" \
     --batch_size "${BATCH_SIZE}" \

@@ -35,3 +35,8 @@
 - 不要为了弥补在错误环境中运行而添加仅用于测试的依赖项存根。
 - 只有在用户明确要求，或修改内容必须通过运行验证时，才编写或执行最小必要测试。
 - 测试脚本使用完后及时清理。
+
+## 下游评测工具
+- 非 reasoning 普通下游（ARC、MMLU 等）：用 **lm_eval**。
+- reasoning 任务（含 **MMLU-Pro**、GSM8K 等）：用 **lighteval**（仓库根 `main.py` + vLLM）；MMLU-Pro 默认 `max_samples=300`。
+- 禁止用 lm_eval 跑 MMLU-Pro。

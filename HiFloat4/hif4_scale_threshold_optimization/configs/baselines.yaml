@@ -1,0 +1,82 @@
+# 该文件定义实验设计中的基线和建议搜索范围。
+# 当前仅作为实验配置规范；实现阶段再接入具体解析器。
+
+format:
+  group_size: 64
+  payload: s1p2
+  s0_storage: e6m2
+  e8_bits: 1
+  e4_bits: 1
+
+fixed_baselines:
+  standard:
+    s0_divisor: 7.0
+    e8_threshold: 4.0
+    e4_threshold: 2.0
+    description: 当前 HiF4 参考规则
+
+  scalar_mse:
+    s0_divisor: 7.0
+    e8_threshold: 3.75
+    e4_threshold: 1.875
+    description: 相邻高端重构点的标量平方误差中点
+
+  no_clip:
+    s0_divisor: 7.0
+    e8_threshold: 3.5
+    e4_threshold: 1.75
+    description: 提前开启局部指数，优先减少超过 1.75 的截断
+
+weight_search:
+  s0_candidate_mode: e6m2_neighbors
+  default_budget: fast
+  budgets:
+    fast:
+      s0_neighbor_offsets: [-1, 0, 1]
+    full:
+      s0_neighbor_offsets: [-2, -1, 0, 1, 2]
+  e8_e4_mode: exact_local_enumeration
+  objective: weight_mse
+  execution:
+    backend: auto
+    group_chunk_size: auto
+    memory_budget_fraction: 0.25
+    static_chunk_shape_on_npu: true
+    python_loop_over_groups: false
+    keep_candidate_results_on_device: true
+    error_accumulation_dtype: float32
+  benchmark:
+    report_groups_per_second: true
+    report_peak_device_memory: true
+    report_ratio_vs_standard_rtn: true
+    report_speedup_vs_python_reference: true
+
+activation_calibration:
+  online_search: false
+  parameter_granularity: per_layer
+  s0_divisor_grid:
+    start: 5.5
+    stop: 7.5
+    step: 0.25
+  e8_threshold_grid:
+    start: 3.4
+    stop: 4.1
+    step: 0.1
+  e4_threshold_grid:
+    start: 1.7
+    stop: 2.05
+    step: 0.05
+  primary_objective: linear_output_mse
+  secondary_objective: activation_mse
+
+metrics:
+  reconstruction:
+    - nmse
+    - sqnr_db
+    - mae
+    - max_absolute_error
+    - clipping_rate
+    - clipping_error_energy
+  model:
+    - perplexity
+    - downstream_accuracy

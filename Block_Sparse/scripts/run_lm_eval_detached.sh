@@ -47,7 +47,7 @@ needs_run() {
 gpu_busy() {
   local gpu="$1"
   local pid
-  for pid in $(pgrep -f "${REPO}/Block_Sparse/scripts/eval_lm_eval.py" 2>/dev/null || true); do
+  for pid in $(pgrep -f "${REPO}/Block_Sparse/tools/eval_lm_eval.py" 2>/dev/null || true); do
     if [[ -r "/proc/${pid}/environ" ]] && \
        tr '\0' '\n' < "/proc/${pid}/environ" 2>/dev/null | grep -qx "CUDA_VISIBLE_DEVICES=${gpu}"; then
       return 0
@@ -80,7 +80,7 @@ run_model() {
   (
     echo $$ > "${lock}"
     CUDA_VISIBLE_DEVICES="${gpu}" "${HIF4_PY}" \
-      "${REPO}/Block_Sparse/scripts/eval_lm_eval.py" \
+      "${REPO}/Block_Sparse/tools/eval_lm_eval.py" \
       --model_path "${model}" \
       --tasks arc_easy,arc_challenge,mmlu \
       --batch_size "${BATCH_SIZE}" \

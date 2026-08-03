@@ -7,6 +7,7 @@ from typing import Any
 
 _CALIBRATION_DATASETS = frozenset({"wikitext2", "c4", "ptb", "s1k"})
 _BLOCK_SIZE_RE = re.compile(r"^(\d+)(?:[xX](\d+))?$")
+PROJECTION_TYPES = ("gate_proj", "up_proj", "down_proj")
 
 
 def parse_block_size(spec: str | int) -> tuple[int, int]:
@@ -37,6 +38,69 @@ def parse_block_size(spec: str | int) -> tuple[int, int]:
     return height, width
 
 
+def parse_projection_prune_shares(raw: str) -> dict[str, float]:
+    """Parse ``gate_proj=1,up_proj=1,down_proj=2`` into a shares dict.
+
+    Values must be > 0. Keys must be exactly the three MLP projection types.
+    Returned values are the raw (unnormalized) shares.
+    """
+    text = str(raw).strip()
+    if not text:
+        raise ValueError("projection_prune_shares string is empty")
+    shares: dict[str, float] = {}
+    for part in text.split(","):
+        piece = part.strip()
+        if not piece:
+            continue
+        if "=" not in piece:
+            raise ValueError(
+                f"Invalid projection_prune_shares item {piece!r}; "
+                "expected key=value (e.g. gate_proj=1)"
+            )
+        key, value_s = piece.split("=", 1)
+        key = key.strip()
+        value_s = value_s.strip()
+        if key not in PROJECTION_TYPES:
+            raise ValueError(
+                f"Unknown projection type {key!r} in projection_prune_shares; "
+                f"expected one of {list(PROJECTION_TYPES)}"
+            )
+        if key in shares:
+            raise ValueError(f"Duplicate projection type in shares: {key}")
+        try:
+            value = float(value_s)
+        except ValueError as exc:
+            raise ValueError(
+                f"Invalid share value for {key}: {value_s!r}"
+            ) from exc
+        if not (value > 0.0):
+            raise ValueError(f"Share for {key} must be > 0, got {value}")
+        shares[key] = value
+    missing = [p for p in PROJECTION_TYPES if p not in shares]
+    if missing:
+        raise ValueError(
+            f"projection_prune_shares missing keys: {missing}. "
+            f"Required: {list(PROJECTION_TYPES)}"
+        )
+    if len(shares) != len(PROJECTION_TYPES):
+        raise ValueError(
+            f"projection_prune_shares must contain exactly {list(PROJECTION_TYPES)}"
+        )
+    return {p: shares[p] for p in PROJECTION_TYPES}
+
+
+def normalize_projection_prune_shares(shares: dict[str, float]) -> dict[str, float]:
+    """Return shares that sum to 1.0, keyed in PROJECTION_TYPES order."""
+    if set(shares) != set(PROJECTION_TYPES):
+        raise ValueError(
+            f"shares keys must be exactly {list(PROJECTION_TYPES)}, got {sorted(shares)}"
+        )
+    total = sum(float(shares[p]) for p in PROJECTION_TYPES)
+    if total <= 0.0:
+        raise ValueError(f"share sum must be > 0, got {total}")
+    return {p: float(shares[p]) / total for p in PROJECTION_TYPES}
+
+
 @dataclass
 class GradientBlockPruningConfig:
     model_path: str = "Qwen/Qwen3.5-27B"
@@ -61,8 +125,17 @@ class GradientBlockPruningConfig:
     min_keep_blocks_per_matrix: int = 1
 
     share_up_gate_mask: bool = False
+    # Optional: split global prune budget across projection types.
+    # None = legacy global ranking across all u/g/d.
+    projection_prune_shares: dict[str, float] | None = None
     pruning_rounds: int = 1
     mlp_permutation: str = "none"  # none | wanda_shared
+    residual_permutation: str = "none"  # none | block_loss
+    residual_perm_search_steps: int = 2000
+    # π0 residual-channel aggregation:
+    # equal | layer_fisher | matrix_fisher | raw_wanda |
+    # sparsity_raw_wanda | density_raw_wanda
+    residual_channel_agg: str = "equal"
 
     seed: int = 42
     score_accumulation_dtype: str = "float64"
@@ -93,6 +166,50 @@ class GradientBlockPruningConfig:
                 f"Unsupported mlp_permutation: {self.mlp_permutation}. "
                 f"Choose from ['none', 'wanda_shared']."
             )
+        if self.residual_permutation not in {"none", "block_loss"}:
+            raise ValueError(
+                f"Unsupported residual_permutation: {self.residual_permutation}. "
+                f"Choose from ['none', 'block_loss']."
+            )
+        if self.residual_perm_search_steps < 0:
+            raise ValueError(
+                f"residual_perm_search_steps must be >= 0, "
+                f"got {self.residual_perm_search_steps}"
+            )
+        if self.residual_channel_agg not in {
+            "equal",
+            "layer_fisher",
+            "matrix_fisher",
+            "raw_wanda",
+            "sparsity_raw_wanda",
+            "density_raw_wanda",
+        }:
+            raise ValueError(
+                f"Unsupported residual_channel_agg: {self.residual_channel_agg}. "
+                f"Choose from ['equal', 'layer_fisher', 'matrix_fisher', "
+                f"'raw_wanda', 'sparsity_raw_wanda', 'density_raw_wanda']."
+            )
+        if self.residual_channel_agg in {
+            "layer_fisher",
+            "matrix_fisher",
+            "sparsity_raw_wanda",
+            "density_raw_wanda",
+        } and (
+            self.residual_permutation == "block_loss"
+            and self.score_type not in {"fisher", "fisher_budget_wanda"}
+        ):
+            raise ValueError(
+                f"residual_channel_agg={self.residual_channel_agg} requires "
+                f"score_type in ['fisher', 'fisher_budget_wanda'], "
+                f"got {self.score_type!r}"
+            )
+        if (
+            self.residual_permutation == "block_loss"
+            and self.score_type == "random"
+        ):
+            raise ValueError(
+                "residual_permutation=block_loss is incompatible with score_type=random"
+            )
         if self.selection_mode != "global_constrained":
             raise ValueError(f"Unsupported selection_mode: {self.selection_mode}")
         if self.score_batch_size != 1:
@@ -117,11 +234,35 @@ class GradientBlockPruningConfig:
                 f"Unsupported calibration_dataset: {self.calibration_dataset}. "
                 f"Choose from {sorted(_CALIBRATION_DATASETS)}."
             )
+        if self.projection_prune_shares is not None:
+            shares = self.projection_prune_shares
+            if set(shares) != set(PROJECTION_TYPES):
+                raise ValueError(
+                    f"projection_prune_shares keys must be exactly "
+                    f"{list(PROJECTION_TYPES)}, got {sorted(shares)}"
+                )
+            for proj in PROJECTION_TYPES:
+                value = float(shares[proj])
+                if not (value > 0.0):
+                    raise ValueError(
+                        f"projection_prune_shares[{proj}] must be > 0, got {value}"
+                    )
+            if self.share_up_gate_mask:
+                g = float(shares["gate_proj"])
+                u = float(shares["up_proj"])
+                if abs(g - u) > 1e-12:
+                    raise ValueError(
+                        "share_up_gate_mask requires gate_proj and up_proj "
+                        f"shares to be equal, got gate_proj={g}, up_proj={u}"
+                    )
+            # Store normalized shares for allocate-time use
+            self.projection_prune_shares = normalize_projection_prune_shares(shares)
 
     def requires_calibration(self) -> bool:
         return (
             self.score_type in {"fisher", "fisher_budget_wanda"}
             or self.mlp_permutation == "wanda_shared"
+            or self.residual_permutation == "block_loss"
         )
 
     def requires_gradient_checkpointing(self) -> bool:
@@ -131,5 +272,4 @@ class GradientBlockPruningConfig:
         return asdict(self)
 
 
-PROJECTION_TYPES = ("gate_proj", "up_proj", "down_proj")
 CALIBRATION_DATASETS = _CALIBRATION_DATASETS

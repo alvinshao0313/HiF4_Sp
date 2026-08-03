@@ -167,3 +167,73 @@ def load_model_and_tokenizer(config: GradientBlockPruningConfig):
     model.eval()
     return model, tokenizer
 
+
+def load_causal_lm_for_training(
+    model_path: str,
+    *,
+    parallel_mode: str = "layer",
+    dtype: str = "bfloat16",
+    attn_implementation: str = "sdpa",
+    trust_remote_code: bool = True,
+):
+    """Load a (pruned) HF CausalLM for LoRA SFT.
+
+    - ``layer``: ``device_map=auto`` across visible GPUs
+    - ``none`` / ``ddp`` / ``fsdp``: CPU load (Trainer / accelerate places shards)
+    """
+    import logging
+
+    logger = logging.getLogger(__name__)
+    mode = str(parallel_mode).strip().lower()
+    torch_dtype = resolve_torch_dtype(dtype)
+    common: dict = {
+        "trust_remote_code": trust_remote_code,
+        "attn_implementation": attn_implementation,
+        "torch_dtype": torch_dtype,
+        "low_cpu_mem_usage": True,
+    }
+
+    auto_cfg = AutoConfig.from_pretrained(
+        model_path, trust_remote_code=trust_remote_code
+    )
+
+    def _from_pretrained(**kwargs):
+        if getattr(auto_cfg, "model_type", None) == "qwen3_5" and hasattr(
+            auto_cfg, "text_config"
+        ):
+            from transformers import Qwen3_5ForCausalLM
+
+            return Qwen3_5ForCausalLM.from_pretrained(
+                model_path, config=auto_cfg.text_config, **kwargs
+            )
+        return AutoModelForCausalLM.from_pretrained(model_path, **kwargs)
+
+    if mode in {"fsdp", "ddp", "none"}:
+        logger.info("Loading model on CPU for parallel_mode=%s", mode)
+        model = _from_pretrained(device_map=None, **common)
+    elif mode == "layer":
+        if not torch.cuda.is_available():
+            raise RuntimeError("parallel_mode=layer requires CUDA")
+        n = torch.cuda.device_count()
+        per_gib = "55GiB" if n <= 4 else "70GiB"
+        max_memory = {i: per_gib for i in range(n)}
+        logger.info(
+            "Loading model with device_map=auto on %d GPUs (max_memory=%s)",
+            n,
+            max_memory,
+        )
+        model = _from_pretrained(
+            device_map="auto", max_memory=max_memory, **common
+        )
+    else:
+        raise ValueError(
+            f"Unknown parallel_mode={parallel_mode!r}; expected fsdp|layer|ddp|none"
+        )
+
+    if getattr(model.config, "model_type", None) == "qwen3_5_text":
+        model.config.architectures = ["Qwen3_5ForCausalLM"]
+    if hasattr(model, "config"):
+        model.config.use_cache = False
+    logger.info("placement: %s", _summarize_device_map(model))
+    return model
+

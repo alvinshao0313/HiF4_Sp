@@ -36,7 +36,7 @@ for model in "${MODELS[@]}"; do
   out_json="${OUT_DIR}/${tag}_wikitext2_s${SEQ_LEN}.json"
   log="${OUT_DIR}/${tag}_wikitext2_s${SEQ_LEN}.log"
   echo "======== PPL ${model} -> ${out_json} ========"
-  CUDA_VISIBLE_DEVICES="${GPUS}" python Block_Sparse/scripts/eval_ppl.py \
+  CUDA_VISIBLE_DEVICES="${GPUS}" python Block_Sparse/tools/eval_ppl.py \
     --model_path "${model}" \
     --dataset wikitext2 \
     --sequence_length "${SEQ_LEN}" \

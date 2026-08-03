@@ -319,6 +319,13 @@ def parse_args():
         help="vLLM 普通 dense linear 输入激活 fake quant 格式。默认 none。",
     )
     parser.add_argument(
+        "--fake_act_quant_exclude",
+        type=str,
+        default="lm_head",
+        help="逗号分隔的 linear 后缀名，跳过 fake activation quant。"
+             "gate_proj/up_proj 会同时跳过融合模块 gate_up_proj。默认 lm_head。",
+    )
+    parser.add_argument(
         "--kv_quant_format",
         choices=["none", "nvfp4", "hif4", "hif4-1"],
         default="none",
@@ -450,6 +457,12 @@ def main():
     additional_config = {}
     if args.fake_act_quant != "none":
         additional_config["fake_act_quant"] = args.fake_act_quant
+        exclude_list = [
+            x.strip() for x in args.fake_act_quant_exclude.split(",") if x.strip()
+        ]
+        if not exclude_list:
+            exclude_list = ["lm_head"]
+        additional_config["fake_act_quant_exclude"] = exclude_list
     if args.fake_act_quant == "nvfp4":
         additional_config.update(
             {
