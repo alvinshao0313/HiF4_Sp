@@ -229,6 +229,50 @@ class UnquantizedLinearMethod(LinearMethodBase):
                     f"{self.nvf4_activation_scales_path}"
                 )
 
+        # Input-only dynamic block sparse (accuracy study; TP=1 eager path).
+        self.dynamic_input_sparse_method = str(
+            additional_config.get("dynamic_input_sparse_method", "none")
+        )
+        self.dynamic_input_sparse_cfg = None
+        if self.dynamic_input_sparse_method != "none":
+            if self.fake_act_quant != "none":
+                raise ValueError(
+                    "dynamic input sparsity cannot be combined with "
+                    f"fake_act_quant={self.fake_act_quant}"
+                )
+            import sys as _sys
+            from pathlib import Path as _Path
+
+            # Ensure repo root is importable when vLLM runs from site-packages/editable.
+            _repo_root = _Path(__file__).resolve().parents[5]
+            if str(_repo_root) not in _sys.path:
+                _sys.path.insert(0, str(_repo_root))
+            from Block_Sparse.dynamic_input_sparse.config import (  # noqa: E402
+                config_from_additional,
+            )
+
+            self.dynamic_input_sparse_cfg = config_from_additional(additional_config)
+            from Block_Sparse.dynamic_input_sparse.telemetry import (  # noqa: E402
+                maybe_enable_from_additional,
+            )
+
+            # Enable in this process (vLLM worker), not only the driver.
+            maybe_enable_from_additional(additional_config)
+            if vllm_config is not None:
+                tp = getattr(
+                    getattr(vllm_config, "parallel_config", None),
+                    "tensor_parallel_size",
+                    1,
+                )
+                from Block_Sparse.dynamic_input_sparse.vllm_adapter import (  # noqa: E402
+                    validate_parallelism_for_dynamic_input,
+                )
+
+                validate_parallelism_for_dynamic_input(
+                    tensor_parallel_size=int(tp or 1),
+                    method=self.dynamic_input_sparse_method,
+                )
+
     @staticmethod
     def _prefix_matches_exclude(prefix: str, exclude: str) -> bool:
         if prefix == exclude or prefix.endswith("." + exclude):
@@ -388,6 +432,12 @@ class UnquantizedLinearMethod(LinearMethodBase):
                 device=layer.weight.device,
                 dtype=torch.float32,
             )
+        if getattr(self, "dynamic_input_sparse_cfg", None) is not None:
+            from Block_Sparse.dynamic_input_sparse.vllm_adapter import (  # noqa: E402
+                setup_dynamic_input_sparse_for_layer,
+            )
+
+            setup_dynamic_input_sparse_for_layer(layer, self.dynamic_input_sparse_cfg)
         if current_platform.is_cpu():
             from vllm.model_executor.layers.utils import dispatch_cpu_unquantized_gemm
 
@@ -419,6 +469,12 @@ class UnquantizedLinearMethod(LinearMethodBase):
                 input_global_scale,
                 output_dtype=x.dtype,
             )
+        if getattr(self, "dynamic_input_sparse_cfg", None) is not None:
+            from Block_Sparse.dynamic_input_sparse.vllm_adapter import (  # noqa: E402
+                mask_linear_input,
+            )
+
+            x = mask_linear_input(layer, x, self.dynamic_input_sparse_cfg)
         if envs.VLLM_BATCH_INVARIANT and current_platform.is_cuda_alike():
             return linear_batch_invariant(x, layer.weight, bias)
         return dispatch_unquantized_gemm()(layer, x, layer.weight, bias)

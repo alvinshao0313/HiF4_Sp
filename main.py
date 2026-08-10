@@ -361,6 +361,25 @@ def parse_args():
         default="none",
         help="Q 伪量化格式。默认 none；enabled 跟随 KV；mxfp8 使用 OCP MXFP8 E4M3 block-32。",
     )
+    parser.add_argument(
+        "--dynamic_input_sparse_method",
+        choices=["none", "m1_oracle", "m8_energy"],
+        default="none",
+        help="Input-only dynamic K-block sparsity for dense MLP linears. "
+             "none=disabled; m8_energy=deployable predictor; m1_oracle=full-output exact recovery.",
+    )
+    parser.add_argument(
+        "--dynamic_input_keep_ratio",
+        type=float,
+        default=1.0,
+        help="Input K-block keep ratio for dynamic input sparsity. Default: 1.0",
+    )
+    parser.add_argument(
+        "--dynamic_input_telemetry_dir",
+        type=str,
+        default="",
+        help="Directory to dump dynamic-input-sparse aggregate telemetry JSON. Empty disables.",
+    )
     return parser.parse_args()
 
 
@@ -376,6 +395,33 @@ def main():
         raise ValueError("--kv_quant_recent_size 仅支持 hif4/hif4-1 KV 量化")
     if args.kv_quant_format == "none" and args.kv_quant_query != "none":
         raise ValueError("--kv_quant_query 非 none 时必须启用 KV 量化")
+    if args.dynamic_input_sparse_method != "none":
+        if not (0.0 < float(args.dynamic_input_keep_ratio) <= 1.0):
+            raise ValueError(
+                "--dynamic_input_keep_ratio 须满足 0 < ratio <= 1, "
+                f"got {args.dynamic_input_keep_ratio}"
+            )
+        if args.fake_act_quant != "none":
+            raise ValueError(
+                "dynamic input sparsity 不能与 --fake_act_quant 同时启用"
+            )
+        if args.kv_quant_format != "none":
+            raise ValueError(
+                "dynamic input sparsity 不能与 --kv_quant_format 同时启用"
+            )
+        tp_check = args.tensor_parallel_size
+        if tp_check is None:
+            try:
+                import torch
+
+                tp_check = torch.cuda.device_count()
+            except Exception:
+                tp_check = 1
+        if tp_check is not None and int(tp_check) > 1:
+            raise ValueError(
+                "dynamic input sparsity 本实验要求 TP=1；"
+                f"请显式传入 --tensor_parallel_size 1（当前将使用 {tp_check}）"
+            )
 
     # 若指定 num_experts_per_tok，为本地 MoE 模型准备覆盖目录并替换 model_path
     if args.num_experts_per_tok is not None:
@@ -480,6 +526,26 @@ def main():
                 "kv_quant_query": args.kv_quant_query,
             }
         )
+    if args.dynamic_input_sparse_method != "none":
+        additional_config.update(
+            {
+                "dynamic_input_sparse_method": args.dynamic_input_sparse_method,
+                "dynamic_input_keep_ratio": float(args.dynamic_input_keep_ratio),
+                "dynamic_input_k_block_size": 64,
+                "dynamic_input_output_energy_block_size": 32,
+                "dynamic_input_mask_granularity": "per_token",
+                "dynamic_input_m1_token_chunk_size": 8,
+                "dynamic_input_telemetry_dir": args.dynamic_input_telemetry_dir,
+            }
+        )
+        if args.dynamic_input_telemetry_dir:
+            import sys as _sys
+
+            if str(REPO_ROOT) not in _sys.path:
+                _sys.path.insert(0, str(REPO_ROOT))
+            from Block_Sparse.dynamic_input_sparse.telemetry import enable_telemetry
+
+            enable_telemetry(debug_first_masks=16)
     if additional_config:
         vllm_model_kwargs["additional_config"] = additional_config
     if args.batch_size is not None:
@@ -524,6 +590,25 @@ def main():
     pipeline.save_and_push_results()
 
     print(f"评估完成。结果与 details 已保存至: {args.output_dir}/{short_model_name}/")
+    if (
+        args.dynamic_input_sparse_method != "none"
+        and args.dynamic_input_telemetry_dir
+    ):
+        import os as _os
+        import sys as _sys
+
+        if str(REPO_ROOT) not in _sys.path:
+            _sys.path.insert(0, str(REPO_ROOT))
+        from Block_Sparse.dynamic_input_sparse.telemetry import get_telemetry
+
+        tel = get_telemetry()
+        if tel is not None:
+            _os.makedirs(args.dynamic_input_telemetry_dir, exist_ok=True)
+            tel_path = _os.path.join(
+                args.dynamic_input_telemetry_dir, "telemetry.json"
+            )
+            tel.dump(tel_path)
+            print(f"dynamic input sparse telemetry -> {tel_path}")
     return results, details
 
 
