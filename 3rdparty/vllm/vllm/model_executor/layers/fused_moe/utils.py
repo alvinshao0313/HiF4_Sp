@@ -22,6 +22,9 @@ from vllm.model_executor.layers.quantization.utils.mxfp6_utils import (
 from vllm.model_executor.layers.quantization.utils.mxfp8_utils import (
     mxfp8_e4m3_quantize,
 )
+from vllm.model_executor.layers.quantization.utils.nvfp4_emulation_utils import (
+    ref_nvfp4_quant_dequant,
+)
 from vllm.model_executor.layers.quantization.utils.w8a8_utils import (
     per_tensor_dequantize,
 )
@@ -246,6 +249,7 @@ def moe_kernel_quantize_input(
     block_shape: list[int] | None = None,
     is_fp4_scale_swizzled: bool = True,
     ocp_mx_scheme: str | None = None,
+    quantization_emulation: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor | None]:
     # Handle OCP MX scheme that requires QDQ (quantize-dequantize) for emulation
     if ocp_mx_scheme is not None:
@@ -271,7 +275,13 @@ def moe_kernel_quantize_input(
     elif quant_dtype == torch.int8:
         return _int8_quantize(A, A_scale, per_act_token_quant, block_shape)
     elif quant_dtype == "nvfp4":
-        return _nvfp4_quantize(A, A_scale, is_sf_swizzled_layout=is_fp4_scale_swizzled)
+        if not quantization_emulation:
+            return _nvfp4_quantize(
+                A, A_scale, is_sf_swizzled_layout=is_fp4_scale_swizzled
+            )
+        assert A_scale is not None
+        A = ref_nvfp4_quant_dequant(A, A_scale, block_size=16)
+        return A, None
     elif quant_dtype == "mxfp4":
         return _mxfp4_quantize(A, A_scale, per_act_token_quant, block_shape)
     elif quant_dtype == "mxfp8":

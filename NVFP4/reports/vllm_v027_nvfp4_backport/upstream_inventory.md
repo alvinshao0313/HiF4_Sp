@@ -161,6 +161,16 @@ Task 0 不修复 `tblib` / SM 门禁；后续 emulation 相关测试需避免依
 4. **CLI：** `main.py` 尚未透传 `linear_backend` / `moe_backend` / `kv_cache_dtype`。
 5. **验收 checkpoint：** `.../models--nvidia--Qwen3-30B-A3B-NVFP4/snapshots/2538ded2a4edb247b4d2b4a8ba24e44bd4c017c3/` 已存在于本机 cache。
 
+## Task 4–6 progress notes (2026-08-21)
+
+- Added `experts/nvfp4_emulation_moe.py` (`Nvfp4QuantizationEmulationTritonExperts`).
+- Wired `NvFp4MoeBackend.EMULATION` in `oracle/nvfp4.py` (map / select / convert / quant_config).
+- `utils.moe_kernel_quantize_input(..., quantization_emulation=True)` → `ref_nvfp4_quant_dequant` (whitelist 已有).
+- **SM80 MoE 适配（未扩 whitelist）：** fused GEMM 在 launch 前把 FP8 block scale 转 float32（`SCALES_ARE_FP32`），避免 Triton `tl.float8e4nv`；E2M1/scale 公式与 v0.27 一致。
+- ModelOpt / CT MoE 无需改 loader：二者已调用同一 `select`/`convert`/`make`；显式 `moe_backend="emulation"` 即共用 `Nvfp4QuantizationEmulationTritonExperts`。
+- Auto 列表末尾追加 EMULATION，不改变 Marlin 优先；正式实验仍须显式 emulation。
+- Double-QDQ 防护：`expects_unquantized_inputs=True`，QDQ 仅在 expert `apply` 各做一次。
+
 ## Adaptation principles for later tasks
 
 1. 只回移 emulation 最小闭包；native CUTLASS/FlashInfer 类仅在 registry import 硬依赖时加入。
