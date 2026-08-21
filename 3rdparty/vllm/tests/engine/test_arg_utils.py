@@ -523,3 +523,30 @@ def test_human_readable_model_len():
     for invalid in ["1a", "pwd", "10.24", "1.23M", "1.22T"]:
         with pytest.raises(ArgumentError):
             parser.parse_args(["--max-model-len", invalid])
+
+
+def test_cli_linear_backend_emulation():
+    parser = EngineArgs.add_cli_args(FlexibleArgumentParser())
+    args = parser.parse_args(["--linear-backend", "emulation"])
+    assert args.linear_backend == "emulation"
+
+
+def test_cli_moe_backend_emulation():
+    parser = EngineArgs.add_cli_args(FlexibleArgumentParser())
+    args = parser.parse_args(["--moe-backend", "emulation"])
+    assert args.moe_backend == "emulation"
+
+
+@pytest.mark.parametrize(
+    ("cli_flag", "cli_value", "attr", "expected"),
+    [
+        ("--linear-backend", "Emulation", "linear_backend", "emulation"),
+        ("--linear-backend", "flashinfer-cutlass", "linear_backend", "flashinfer_cutlass"),
+        ("--moe-backend", "EMULATION", "moe_backend", "emulation"),
+        ("--moe-backend", "flashinfer-trtllm", "moe_backend", "flashinfer_trtllm"),
+    ],
+)
+def test_cli_backend_normalization(cli_flag, cli_value, attr, expected):
+    parser = EngineArgs.add_cli_args(FlexibleArgumentParser())
+    args = parser.parse_args([cli_flag, cli_value])
+    assert getattr(args, attr) == expected

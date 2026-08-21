@@ -19,6 +19,21 @@ MoEBackend = Literal[
     "flashinfer_cutedsl",
     "marlin",
     "aiter",
+    "emulation",
+]
+
+# Minimal LinearBackend set for NVFP4 emulation backport.
+# Do not expand to the full v0.27.0 list unless a hard dependency appears.
+LinearBackend = Literal[
+    "auto",
+    "cutlass",
+    "flashinfer_cutlass",
+    "flashinfer_cutedsl",
+    "flashinfer_trtllm",
+    "flashinfer_cudnn",
+    "marlin",
+    "fbgemm",
+    "emulation",
 ]
 
 
@@ -40,11 +55,35 @@ class KernelConfig:
     - "flashinfer_cutlass": Use FlashInfer with CUTLASS kernels
     - "flashinfer_cutedsl": Use FlashInfer with CuteDSL kernels (FP4 only)
     - "marlin": Use Marlin kernels (weight-only quantization)
-    - "aiter": Use AMD AITer kernels (ROCm only)"""
+    - "aiter": Use AMD AITer kernels (ROCm only)
+    - "emulation": use BF16/FP16 GEMM, dequantizing weights and
+                   running QDQ on activations.
+    """
+
+    linear_backend: LinearBackend = "auto"
+    """Backend for quantized linear layer GEMM kernels. Available options:
+
+    - "auto": Automatically select the best backend based on model and hardware
+    - "cutlass": Use CUTLASS-based kernels
+    - "flashinfer_cutlass": Use FlashInfer with CUTLASS kernels
+    - "flashinfer_cutedsl": Use FlashInfer with CuTe-DSL kernels (NVFP4, MXFP8)
+    - "flashinfer_trtllm": Use FlashInfer with TensorRT-LLM kernels
+    - "flashinfer_cudnn": Use FlashInfer with cuDNN kernels
+    - "marlin": Use Marlin kernels
+    - "fbgemm": Use FBGEMM kernels
+    - "emulation": Use slow dequant-to-BF16 emulation (for testing only)
+    """
 
     @field_validator("moe_backend", mode="before")
     @classmethod
     def _normalize_moe_backend(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return value.lower().replace("-", "_")
+        return value
+
+    @field_validator("linear_backend", mode="before")
+    @classmethod
+    def _normalize_linear_backend(cls, value: Any) -> Any:
         if isinstance(value, str):
             return value.lower().replace("-", "_")
         return value
