@@ -163,3 +163,4 @@ Task 0 不修复 `tblib` / SM 门禁；后续 emulation 相关测试需避免依
 2. CT MoE 保持本地单文件，不跟 upstream 包化。
 3. 不改变默认 `auto` 行为；正式实验显式 `emulation`；目标 NVFP4 层请求失败必须报错，禁止静默 Marlin。
 4. 数学规则（含 MoE `a13_scale/a2_scale` 的 `max()` 倒数）严格跟 v0.27.0，禁止“精度修正”。
+5. **A800 (SM80) Triton 门禁：** v0.27 Triton dequant/QDQ 使用 `tl.float8e4nv`，在 SM80 上无法编译。`nvfp4_emulation_utils` 增加 `_nvfp4_triton_fp8e4nv_supported()`（`has_device_capability(89)`），不支持时走 upstream 已有 Python 参考路径；**不改变数值规则**，只做硬件能力选择。
