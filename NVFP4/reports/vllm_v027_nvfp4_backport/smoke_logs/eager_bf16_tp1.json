@@ -1,0 +1,43 @@
+{
+  "tag": "eager_bf16_tp1",
+  "checkpoint": "/home/shaoyuantian/.cache/huggingface/hub/models--nvidia--Qwen3-30B-A3B-NVFP4/snapshots/2538ded2a4edb247b4d2b4a8ba24e44bd4c017c3",
+  "tp": 1,
+  "kv_cache_dtype_arg": "bfloat16",
+  "enforce_eager": true,
+  "linear_backend": "emulation",
+  "moe_backend": "emulation",
+  "cuda_visible_devices": "0",
+  "max_model_len": 512,
+  "max_new_tokens": 16,
+  "passed": true,
+  "error": null,
+  "oom": false,
+  "gpu_name": "NVIDIA A800 80GB PCIe",
+  "gpu_count_visible": 1,
+  "resolved_linear_backend": "emulation",
+  "resolved_moe_backend": "emulation",
+  "resolved_kv_cache_dtype": "bfloat16",
+  "nvfp4_layer_samples": [],
+  "marlin_fallback_hits": [],
+  "generations": [
+    {
+      "prompt": "Hello",
+      "text": " of the day! I need to find the value of the following expression: "
+    },
+    {
+      "prompt": "1+1=",
+      "text": "2, 2+2=4, 3+3=6,"
+    },
+    {
+      "prompt": "The capital of France is",
+      "text": " Paris. The capital of Germany is Berlin. The capital of Italy is Rome."
+    },
+    {
+      "prompt": "Write one word: ok",
+      "text": ", so I'm trying to figure out what the answer is for this question."
+    }
+  ],
+  "backend_ok": true,
+  "no_marlin": true,
+  "fp8_kv_resolved": null
+}

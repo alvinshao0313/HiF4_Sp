@@ -234,9 +234,12 @@ class Attention(nn.Module, AttentionLayerBase):
             kv_cache_dtype = "auto"
             calculate_kv_scales = False
 
-        # llm-compressor mdls need to set cache_dtype to "fp8" manually.
+        # llm-compressor models declare an FP8 KV-cache scheme in their
+        # checkpoint config. Honor it only when the user did not explicitly
+        # pick a kv_cache_dtype; an explicit choice (e.g. bfloat16) must win.
+        # Aligned with vLLM v0.27.0 Attention init semantics.
         kv_cache_scheme = getattr(quant_config, "kv_cache_scheme", None)
-        if kv_cache_scheme is not None:
+        if kv_cache_scheme is not None and kv_cache_dtype == "auto":
             kv_cache_dtype = "fp8"
             calculate_kv_scales = False
             if cache_config is not None:
@@ -277,6 +280,12 @@ class Attention(nn.Module, AttentionLayerBase):
         self.kv_cache_torch_dtype = kv_cache_dtype_str_to_dtype(
             kv_cache_dtype, vllm_config.model_config
         )
+        # reshape_and_cache*_flash CUDA ops only accept "auto" / "fp8*".
+        # Explicit BF16/FP16 KV (design: kv_cache_dtype=bfloat16) stores BF16
+        # tensors via kv_cache_torch_dtype, but must pass "auto" to the op —
+        # same effective path as non-quantized KV in DISPATCH_BY_KV_CACHE_DTYPE.
+        if kv_cache_dtype in ("bfloat16", "float16", "half"):
+            kv_cache_dtype = "auto"
         self.kv_cache_dtype = kv_cache_dtype
         self.calculate_kv_scales = calculate_kv_scales
         if num_kv_heads is None:

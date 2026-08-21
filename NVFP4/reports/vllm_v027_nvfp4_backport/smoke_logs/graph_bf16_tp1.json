@@ -1,0 +1,16 @@
+{
+  "tag": "graph_bf16_tp1",
+  "checkpoint": "/home/shaoyuantian/.cache/huggingface/hub/models--nvidia--Qwen3-30B-A3B-NVFP4/snapshots/2538ded2a4edb247b4d2b4a8ba24e44bd4c017c3",
+  "tp": 1,
+  "kv_cache_dtype_arg": "bfloat16",
+  "enforce_eager": false,
+  "linear_backend": "emulation",
+  "moe_backend": "emulation",
+  "cuda_visible_devices": "0",
+  "max_model_len": 512,
+  "max_new_tokens": 16,
+  "passed": false,
+  "error": "RuntimeError: Engine core initialization failed. See root cause above. Failed core proc(s): {}",
+  "oom": false,
+  "traceback": "Traceback (most recent call last):\n  File \"/home/shaoyuantian/program/HiF4_Sp/NVFP4/scripts/run_qwen3_30b_nvfp4_emulation_smoke.py\", line 71, in main\n    llm = LLM(\n          ^^^^\n  File \"/home/shaoyuantian/program/HiF4_Sp/3rdparty/vllm/vllm/entrypoints/llm.py\", line 382, in __init__\n    self.llm_engine = LLMEngine.from_engine_args(\n                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/shaoyuantian/program/HiF4_Sp/3rdparty/vllm/vllm/v1/engine/llm_engine.py\", line 177, in from_engine_args\n    return cls(\n           ^^^^\n  File \"/home/shaoyuantian/program/HiF4_Sp/3rdparty/vllm/vllm/v1/engine/llm_engine.py\", line 111, in __init__\n    self.engine_core = EngineCoreClient.make_client(\n                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/shaoyuantian/program/HiF4_Sp/3rdparty/vllm/vllm/v1/engine/core_client.py\", line 101, in make_client\n    return SyncMPClient(vllm_config, executor_class, log_stats)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/shaoyuantian/program/HiF4_Sp/3rdparty/vllm/vllm/tracing/otel.py\", line 178, in sync_wrapper\n    return func(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/shaoyuantian/program/HiF4_Sp/3rdparty/vllm/vllm/v1/engine/core_client.py\", line 710, in __init__\n    super().__init__(\n  File \"/home/shaoyuantian/program/HiF4_Sp/3rdparty/vllm/vllm/v1/engine/core_client.py\", line 535, in __init__\n    with launch_core_engines(\n  File \"/home/shaoyuantian/anaconda3/envs/hif4/lib/python3.11/contextlib.py\", line 144, in __exit__\n    next(self.gen)\n  File \"/home/shaoyuantian/program/HiF4_Sp/3rdparty/vllm/vllm/v1/engine/utils.py\", line 998, in launch_core_engines\n    wait_for_engine_startup(\n  File \"/home/shaoyuantian/program/HiF4_Sp/3rdparty/vllm/vllm/v1/engine/utils.py\", line 1057, in wait_for_engine_startup\n    raise RuntimeError(\nRuntimeError: Engine core initialization failed. See root cause above. Failed core proc(s): {}\n"
+}

@@ -174,6 +174,10 @@ class VLLMModelConfig(ModelConfig):
     cpu_offload_gb: float = 0
     enforce_eager: bool = False
     allow_deprecated_quantization: bool = False
+    # [NVFP4 backport] Forward vLLM KernelConfig / CacheConfig selections.
+    linear_backend: str = "auto"
+    moe_backend: str = "auto"
+    kv_cache_dtype: str = "auto"
     # [hif4 quant] Forward vLLM additional_config so local vLLM patches can
     # enable HiF4 fake activation quantization from the eval entrypoint.
     additional_config: dict | None = None
@@ -285,6 +289,10 @@ class VLLMModel(LightevalModel):
             # [ExpertPruning-mod] use the configurable enforce_eager field (upstream hard-codes True).
             "enforce_eager": config.enforce_eager,
             "allow_deprecated_quantization": config.allow_deprecated_quantization,
+            # [NVFP4 backport] pass KernelConfig / KV cache dtype through to vllm.LLM.
+            "linear_backend": config.linear_backend,
+            "moe_backend": config.moe_backend,
+            "kv_cache_dtype": config.kv_cache_dtype,
         }
         if config.additional_config:
             self.model_args["additional_config"] = config.additional_config

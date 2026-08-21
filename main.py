@@ -318,6 +318,24 @@ def parse_args():
              "注意：会显著降低推理速度。依赖本仓库对 lighteval 的本地修改（VLLMModelConfig.cpu_offload_gb 字段）。",
     )
     parser.add_argument(
+        "--linear_backend",
+        type=str,
+        default="auto",
+        help="传给 vLLM：linear_backend（如 auto / emulation / marlin）。默认 auto。",
+    )
+    parser.add_argument(
+        "--moe_backend",
+        type=str,
+        default="auto",
+        help="传给 vLLM：moe_backend（如 auto / emulation / triton）。默认 auto。",
+    )
+    parser.add_argument(
+        "--kv_cache_dtype",
+        type=str,
+        default="auto",
+        help="传给 vLLM：kv_cache_dtype（如 auto / bfloat16 / fp8 / fp8_e4m3 / fp8_e5m2）。默认 auto。",
+    )
+    parser.add_argument(
         "--fake_act_quant",
         choices=["none", "hif4", "nvfp4", "hif4-1"],
         default="none",
@@ -390,6 +408,12 @@ def parse_args():
 
 def main():
     args = parse_args()
+    if args.fake_act_quant == "nvfp4" and args.linear_backend == "emulation":
+        raise ValueError(
+            "--fake_act_quant nvfp4 是 sidecar/unquantized fake activation 路径；"
+            "--linear_backend emulation 是 native packed NVFP4 checkpoint emulation 路径；"
+            "二者不能同时启用。"
+        )
     if args.kv_quant_format == "nvfp4" and args.kv_quant_chunk_size < 1:
         raise ValueError("--kv_quant_chunk_size 须为正整数")
     if args.kv_quant_sink_size < 0:
@@ -498,6 +522,9 @@ def main():
         enforce_eager=args.enforce_eager,
         allow_deprecated_quantization=args.allow_deprecated_quantization,
         cpu_offload_gb=args.cpu_offload_gb,
+        linear_backend=args.linear_backend,
+        moe_backend=args.moe_backend,
+        kv_cache_dtype=args.kv_cache_dtype,
         enable_prefix_caching=False if args.kv_quant_recent_size > 0 else None,
         generation_parameters=GenerationParameters(
             temperature=args.temperature,

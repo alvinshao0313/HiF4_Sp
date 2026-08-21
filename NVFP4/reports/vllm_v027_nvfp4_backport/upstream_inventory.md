@@ -106,6 +106,9 @@ Task 0 不修复 `tblib` / SM 门禁；后续 emulation 相关测试需避免依
 - `3rdparty/vllm/vllm/config/kernel.py`
 - `3rdparty/vllm/vllm/engine/arg_utils.py`
 - `3rdparty/vllm/vllm/entrypoints/llm.py`（仅当 kwargs 透传不足时）
+- `3rdparty/vllm/vllm/model_executor/layers/attention/attention.py`
+  - **Task 11 必需：** 显式 `kv_cache_dtype=bfloat16` 时不得被 checkpoint `kv_cache_scheme=fp8` 覆盖；
+    且 CUDA `reshape_and_cache` 仅接受 `auto`/`fp8*` 字符串——BF16 分配仍走 `kv_cache_torch_dtype`，op 字符串映射为 `auto`（与 v0.27 显式 dtype 优先语义对齐）
 
 ### Vendored vLLM — Dense NVFP4 linear
 
