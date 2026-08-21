@@ -40,7 +40,21 @@ def select_nvfp4_linear_backend() -> NvFp4LinearBackend:
     """
     Select the best available NVFP4 GEMM backend based on environment
     configuration and platform capabilities.
+
+    Prefer ``KernelConfig.linear_backend="emulation"`` when set. Formal
+    ModelOpt/CT paths use ``init_nvfp4_linear_kernel``; this helper remains
+    for auto/native selection and legacy callers.
     """
+    from vllm.config import get_current_vllm_config_or_none
+
+    vllm_config = get_current_vllm_config_or_none()
+    if (
+        vllm_config is not None
+        and vllm_config.kernel_config.linear_backend == "emulation"
+    ):
+        logger.info_once("Using %s for NVFP4 GEMM", NvFp4LinearBackend.EMULATION)
+        return NvFp4LinearBackend.EMULATION
+
     backend: NvFp4LinearBackend | None = None
 
     if envs.VLLM_USE_FBGEMM:
@@ -202,12 +216,14 @@ def apply_nvfp4_linear(
             bias=bias,
         )
     elif backend == NvFp4LinearBackend.EMULATION:
+        # Match EmulationNvFp4LinearKernel / v0.27.0: scales are not swizzled.
         out = run_nvfp4_emulations(
             x=x,
             input_global_scale=input_global_scale_inv,
             weight=weight,
             weight_scale_swizzled=weight_scale,
             weight_global_scale=weight_global_scale,
+            swizzle=False,
         )
         if bias is not None:
             out = out + bias

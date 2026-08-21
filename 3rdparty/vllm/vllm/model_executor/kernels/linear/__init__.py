@@ -367,9 +367,21 @@ def choose_mp_linear_kernel(
     )
 
 
+# Re-export NVFP4 selection for upstream-compatible import paths.
+from vllm.model_executor.kernels.linear.nvfp4.emulation import (  # noqa: E402
+    EmulationNvFp4LinearKernel,
+)
+from vllm.model_executor.kernels.linear.nvfp4.select import (  # noqa: E402
+    init_nvfp4_linear_kernel,
+    select_nvfp4_linear_kernel,
+)
+
+
 __all__ = [
     "init_fp8_linear_kernel",
     "init_int8_linear_kernel",
+    "init_nvfp4_linear_kernel",
+    "select_nvfp4_linear_kernel",
     "choose_mp_linear_kernel",
     "FP8ScaledMMLinearKernel",
     "Int8ScaledMMLinearKernel",
@@ -399,4 +411,5 @@ __all__ = [
     "MarlinLinearKernel",
     "XPUW4A8IntLinearKernel",
     "XPUwNa16LinearKernel",
+    "EmulationNvFp4LinearKernel",
 ]

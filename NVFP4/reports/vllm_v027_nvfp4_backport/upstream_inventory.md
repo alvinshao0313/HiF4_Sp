@@ -44,6 +44,8 @@ Task 0 不修复 `tblib` / SM 门禁；后续 emulation 相关测试需避免依
 | `vllm/model_executor/kernels/linear/nvfp4/__init__.py` | NVFP4 linear kernel 包入口 |
 | `vllm/model_executor/kernels/linear/nvfp4/base.py` | `NvFp4LinearKernel` / `NvFp4LinearLayerConfig` |
 | `vllm/model_executor/kernels/linear/nvfp4/emulation.py` | `EmulationNvFp4LinearKernel` |
+| `vllm/model_executor/kernels/linear/nvfp4/select.py` | **(local)** focused `init_nvfp4_linear_kernel` / `select_nvfp4_linear_kernel`；emulation 不依赖 cutlass/marlin 类 |
+| `vllm/model_executor/kernels/linear/nvfp4/legacy.py` | **(local)** `LegacyNvFp4LinearKernel` 适配旧 `nvfp4_utils` native 路径（auto/非 emulation） |
 | `vllm/model_executor/layers/fused_moe/experts/nvfp4_emulation_moe.py` | `Nvfp4QuantizationEmulationTritonExperts` |
 | `tests/kernels/quantization/test_nvfp4_emulation.py` | upstream emulation 数值/MoE 测试（按本地 fixture 适配） |
 | `tests/config/test_kernel_config.py` | 本地无此文件；按 Task 1 新建，仅覆盖 backend 字段 |
@@ -111,7 +113,9 @@ Task 0 不修复 `tblib` / SM 门禁；后续 emulation 相关测试需避免依
 - `3rdparty/vllm/vllm/model_executor/kernels/linear/nvfp4/__init__.py` **(new)**
 - `3rdparty/vllm/vllm/model_executor/kernels/linear/nvfp4/base.py` **(new)**
 - `3rdparty/vllm/vllm/model_executor/kernels/linear/nvfp4/emulation.py` **(new)**
-- `3rdparty/vllm/vllm/model_executor/kernels/linear/nvfp4/{cutlass,marlin,flashinfer,fbgemm,humming}.py` **(条件 new)**
+- `3rdparty/vllm/vllm/model_executor/kernels/linear/nvfp4/select.py` **(new, local focused selection)**
+- `3rdparty/vllm/vllm/model_executor/kernels/linear/nvfp4/legacy.py` **(new, local native adapter)**
+- `3rdparty/vllm/vllm/model_executor/kernels/linear/nvfp4/{cutlass,marlin,flashinfer,fbgemm,humming}.py` **(条件 new；Task 3 未回移，由 legacy+nvfp4_utils 覆盖)**
 - `3rdparty/vllm/vllm/model_executor/layers/quantization/utils/nvfp4_emulation_utils.py`
 - `3rdparty/vllm/vllm/model_executor/layers/quantization/utils/nvfp4_utils.py`
 - `3rdparty/vllm/vllm/model_executor/layers/quantization/modelopt.py`
