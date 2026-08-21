@@ -1,0 +1,6 @@
+{
+  "source": "Qmodel/Qwen3-8B-FPQuant-QAT-NVFP4-Dequant-BF16-NoHadamard",
+  "converted_linear_weights": 252,
+  "passthrough_tensors": 147,
+  "note": "HiF4 QDQ BF16 materialization for P2_matched_semantic target; lm_head/embed/norm untouched"
+}

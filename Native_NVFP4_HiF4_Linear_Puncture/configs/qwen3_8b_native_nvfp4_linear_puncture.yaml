@@ -1,0 +1,47 @@
+model:
+  model_id: ISTA-DASLab/Qwen3-8B-FPQuant-QAT-NVFP4
+  expected_architecture: Qwen3ForCausalLM
+  expected_num_layers: 36
+  target_projections: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+experiment:
+  formal_layers: [2, 10, 18, 26, 34]
+  max_seq_len: 256
+  token_rows_per_prompt: 64
+  seed: 20260812
+  phase: prefill
+
+nvfp4:
+  activation_group_size: 16
+  expected_payload: e2m1
+  expected_local_scale: e4m3fn
+
+mxfp8:
+  block_size: 32
+  payload: e4m3fn
+  shared_scale: e8m0
+
+hif4:
+  group_size: 64
+  s0_divisor: 7.0
+  e8_threshold: 4.0
+  e4_threshold: 2.0
+  s0_mode: hardware
+
+weight_greedy:
+  budget: full
+  enumerate_e8_e4: true
+  memory_budget_fraction: 0.25
+
+diagonal_search:
+  parameterization: log2
+  coarse_log2_offsets: [-1.0, -0.5, 0.0, 0.5, 1.0]
+  refine_log2_offsets: [-0.25, 0.0, 0.25]
+  num_coarse_sweeps: 1
+  num_refine_sweeps: 1
+  log2_scale_min: -4.0
+  log2_scale_max: 4.0
+  search_token_rows_per_module: 128
+  search_output_channels_per_module: 128
+  full_calibration_rescore: true
+  eps: 1.0e-8

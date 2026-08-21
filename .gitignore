@@ -65,7 +65,6 @@ Block_Sparse/outputs/
 Block_Sparse/tests/
 **/experiments/
 **/outputs/
-**/tests/
 **/data/
 **/models/
 **/results/

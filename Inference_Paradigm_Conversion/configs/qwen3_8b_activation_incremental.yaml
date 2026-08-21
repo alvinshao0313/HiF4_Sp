@@ -1,0 +1,95 @@
+seed: 20260810
+repo_root: /home/shaoyuantian/program/HiF4_Sp
+
+base_plan:
+  path: Inference_Paradigm_Conversion/plans/2026-08-10-inference-paradigm-conversion-error-analysis-plan-qwen3-8b-nvfp4-qat-cn.md
+  require_activation_task_outputs: true
+
+base_run:
+  a2_run_id: "20260811T032247Z_a2"
+  repr_al_run_id: "20260811T015135Z_repr_al"
+
+model:
+  source_checkpoint: Qmodel/Qwen3-8B-FPQuant-QAT-NVFP4-Dequant-BF16-NoHadamard
+  source_semantics: nvfp4_qat_fake_dequant_bf16
+  optional_fp32_storage_probe: Qmodel/Qwen3-8B-FPQuant-QAT-NVFP4-Dequant-FP32-NoHadamard
+  original_training_source: ISTA-DASLab/Qwen3-8B-FPQuant-QAT-NVFP4
+  hadamard_runtime: disabled
+  hadamard_reason: folded_into_checkpoint_weights
+
+activation_nvfp4:
+  block_size: 16
+  global_scale_dtype: float32
+  global_scale_granularity: per_linear
+  scale_file_resolution: existing_repo_nvfp4_loader
+  calibration_dataset: s1k-1.1
+  calibration_nsamples: 512
+  calibration_seqlen: 4096
+  calibration_slice_mode: head
+  calibration_slice_offset: 0
+
+analysis:
+  representative_layer_policy: early_middle_late
+  representative_layer_count: 3
+  token_sample_per_module_per_phase: 4096
+  raw_token_sample_per_module_per_phase: 256
+  token_chunk_size: 256
+  samples_per_prompt_family: 32
+  discovery_samples_per_prompt_family: 16
+  validation_samples_per_prompt_family: 16
+  network_scan_samples: 32
+  network_scan_max_length: 1024
+  sequence_length_buckets: [256, 1024, 4096]
+  prequant_activation_dtype: bfloat16
+  qdq_output_dtype: bfloat16
+  accumulator_dtype: float32
+
+activation:
+  phases: [prefill, decode]
+  decode_steps_per_prompt_for_analysis: 128
+  exclude_modules: [lm_head]
+  p2_use_matched_coverage: true
+
+bootstrap:
+  repeats: 1000
+  confidence: 0.95
+
+e2e:
+  mmlu_pro_max_samples: 300
+  arc_num_fewshot: 0
+  aime25_repeats: 3
+
+s0_search:
+  divisor_min: 4.0
+  divisor_max: 10.0
+  coarse_step: 0.125
+  fine_half_width: 0.125
+  fine_points: 33
+  output_oracle_top_error_groups: 256
+  output_oracle_random_groups: 256
+  output_oracle_energy_matched_groups: 256
+
+group_size:
+  variants: [16, 32, 64]
+  dispersion_d: [0.0, 0.5, 1.0, 1.5, 2.0]
+
+grid:
+  histogram_bins: 128
+  log_abs_bins: 96
+  epsilon: 1.0e-12
+
+rule_selection:
+  global_constant: true
+  projection_specific: true
+  max_rms_three_bin: true
+
+statistics:
+  bootstrap_repeats: 1000
+  confidence: 0.95
+
+runtime:
+  samples_per_family: 8
+  max_seq_len: 128
+  decode_steps: 4
+  max_tokens_prefill: 32
+  phases_stage1: ["prefill"]

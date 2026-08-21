@@ -1,0 +1,7 @@
+seed: 20260810
+group_size_hif4: 64
+group_size_nvfp4: 16
+group_size_mxfp8: 32
+num_groups: 128
+hidden: 256
+out_features: 128

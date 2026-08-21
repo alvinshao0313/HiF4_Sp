@@ -1,0 +1,61 @@
+base_config: Inference_Paradigm_Conversion/configs/qwen3_8b_nvfp4_qat_formal.yaml
+
+experiment:
+  name: hif4_equivalent_scaling
+
+  # Discovery / validation protocol
+  representative_layers: [4, 18, 34]
+  samples_per_family: 8
+  max_seq_len: 256
+  decode_steps: 8
+  max_stat_rows_per_capture: 256
+  max_eval_rows_prefill: 32
+  max_eval_rows_decode: 8
+
+  # HiF4 semantics are fixed; this experiment only changes offline static D.
+  group_size: 64
+  run_pts_layer: true
+  run_phase_g64: true
+  collect_phase_g64_errors: true
+  phase_g64_domains: [attn_in, mlp_in, down_in, o_in]
+
+  equalization_granularities: [16, 8, 4, 1]
+  alphas: [0.0, 0.25, 0.5, 0.75, 1.0]
+  run_alpha_refine: true
+  min_scale: 0.5
+  max_scale: 2.0
+
+  # Layer/domain PTS and G64 phase search grid.
+  pts_log2_min: -1.0
+  pts_log2_max: 1.0
+  pts_points: 33
+
+  # Fixed, non-learned weight-aware comparator for shared-input domains.
+  run_weight_aware_balance: true
+  weight_aware_beta: 0.5
+  run_o_free_oracle: true
+
+  # Wide-bound is diagnostic-only. It is materialized in the candidate artifact so
+  # all shards share the exact same oracle candidates; it can never enter deployable policy.
+  build_wide_bound_candidates: true
+  wide_bound_trigger_clamp_rate: 0.20
+  wide_bound_min_gain: 0.05
+  wide_bound_min_scale: 0.25
+  wide_bound_max_scale: 4.0
+
+  # Candidate ranking and guards.
+  output_objective_lambda_local: 0.25
+  weight_functional_guard_ratio: 1.25
+  weight_nmse_warning_ratio: 1.50
+  local_output_guard_ratio: 1.05
+
+  # Representative validation gate.
+  validation_min_recovery: 0.05
+  validation_min_win_rate: 0.60
+
+  # Frozen-recipe all-layer gate.
+  all_layer_bad_recovery_threshold: -0.05
+  target_trajectory_max_kl_regression_ratio: 1.10
+
+  # Runtime device used by the non-sharded selection/block-closure stages.
+  selection_device: cuda:0

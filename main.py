@@ -305,6 +305,11 @@ def parse_args():
              "依赖本仓库对 lighteval 的本地修改（VLLMModelConfig.enforce_eager 字段）。",
     )
     parser.add_argument(
+        "--allow-deprecated-quantization",
+        action="store_true",
+        help="传给 vLLM：allow_deprecated_quantization=True。NVFP4 fp_quant 等旧量化方法加载时需要。",
+    )
+    parser.add_argument(
         "--cpu_offload_gb",
         type=float,
         default=0,
@@ -491,6 +496,7 @@ def main():
         max_model_length=args.max_model_length,
         dtype="auto",
         enforce_eager=args.enforce_eager,
+        allow_deprecated_quantization=args.allow_deprecated_quantization,
         cpu_offload_gb=args.cpu_offload_gb,
         enable_prefix_caching=False if args.kv_quant_recent_size > 0 else None,
         generation_parameters=GenerationParameters(

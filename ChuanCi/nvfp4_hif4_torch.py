@@ -36,6 +36,7 @@ class HiF4Config:
     hierarchy_format: str = "s1p2"
     enable_exp8: bool = True
     enable_exp4: bool = True
+    s0_divisor: float | None = None
 
 
 @dataclass(frozen=True)
@@ -315,8 +316,11 @@ def quantize_hif4(
     nonzero = amax64 > 0
 
     hierarchy_divisor = 7.0 if config.hierarchy_format == "s1p2" else 24.0
+    divisor = (
+        config.s0_divisor if config.s0_divisor is not None else hierarchy_divisor
+    )
     # 顶层 S0：按 scale_mode 走 continuous / BF16 / E6M2 / hardware。
-    s0 = _compute_top_scale(amax64, config.scale_mode, hierarchy_divisor)
+    s0 = _compute_top_scale(amax64, config.scale_mode, divisor)
     safe_s0 = torch.where(nonzero, s0, torch.ones_like(s0))
     # hardware/bf16_math 用 BF16 reciprocal，对齐现有 quant_hifx 路径。
     reciprocal = _compute_reciprocal_scale(safe_s0, config.scale_mode)

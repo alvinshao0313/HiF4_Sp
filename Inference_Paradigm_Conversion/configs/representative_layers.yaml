@@ -1,0 +1,5 @@
+# Resolved at F0 from config.json num_hidden_layers=L:
+# early = floor(L/8), middle = floor(L/2), late = L-2
+# Do not hardcode layer indices here; F0 writes resolved values into the run manifest.
+policy: early_middle_late
+notes: resolved_at_f0_from_checkpoint_config

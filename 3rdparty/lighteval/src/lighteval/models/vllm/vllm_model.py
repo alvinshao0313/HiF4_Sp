@@ -173,6 +173,7 @@ class VLLMModelConfig(ModelConfig):
     # 被硬编码为 True，cpu_offload_gb 则完全没暴露）。
     cpu_offload_gb: float = 0
     enforce_eager: bool = False
+    allow_deprecated_quantization: bool = False
     # [hif4 quant] Forward vLLM additional_config so local vLLM patches can
     # enable HiF4 fake activation quantization from the eval entrypoint.
     additional_config: dict | None = None
@@ -283,6 +284,7 @@ class VLLMModel(LightevalModel):
             "max_num_batched_tokens": int(config.max_num_batched_tokens),
             # [ExpertPruning-mod] use the configurable enforce_eager field (upstream hard-codes True).
             "enforce_eager": config.enforce_eager,
+            "allow_deprecated_quantization": config.allow_deprecated_quantization,
         }
         if config.additional_config:
             self.model_args["additional_config"] = config.additional_config
@@ -610,6 +612,7 @@ class AsyncVLLMModel(VLLMModel):
             "max_num_batched_tokens": int(config.max_num_batched_tokens),
             # [ExpertPruning-mod] use the configurable enforce_eager field (upstream hard-codes True).
             "enforce_eager": config.enforce_eager,
+            "allow_deprecated_quantization": config.allow_deprecated_quantization,
         }
 
         if config.data_parallel_size > 1:
