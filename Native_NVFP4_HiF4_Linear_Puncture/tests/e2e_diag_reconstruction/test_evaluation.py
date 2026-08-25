@@ -19,6 +19,9 @@ from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.evalu
     needs_materialized_checkpoint,
     vllm_fake_act_for_variant,
 )
+from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.evaluation.lm_eval_vllm import (
+    build_lm_eval_vllm_kwargs,
+)
 from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.evaluation.summarize import (
     structure_preset,
     summarize_runs,
@@ -127,8 +130,8 @@ def test_phase_a_best_presets_follow_three_level_rule(tmp_path):
         }
     )
     assert summary["best_fusable_preset"] == "fusable_r64"
-    assert summary["best_online_preset"] == "online"
-    assert summary["best_overall_preset"] == "online"
+    assert summary["best_online_preset"] == "online_r64_then_diag"
+    assert summary["best_overall_preset"] == "fusable_r64"
 
 
 def test_reasoning_eval_requires_two_gpus():
@@ -145,11 +148,26 @@ def test_reasoning_eval_requires_two_gpus():
 
 
 def test_vllm_fake_act_mapping():
-    assert vllm_fake_act_for_variant("native_nvfp4") == "nvfp4"
-    assert vllm_fake_act_for_variant("direct_hif4") == "hif4"
-    assert vllm_fake_act_for_variant("artifact") == "hif4"
-    assert needs_materialized_checkpoint("direct_hif4") is False
+    assert vllm_fake_act_for_variant("native_nvfp4") == "none"
+    assert vllm_fake_act_for_variant("direct_hif4") == "none"
+    assert vllm_fake_act_for_variant("artifact") == "none"
+    assert needs_materialized_checkpoint("direct_hif4") is True
     assert needs_materialized_checkpoint("artifact") is True
+
+
+def test_lm_eval_vllm_kwargs_native_and_sidecar(tmp_path):
+    sidecar = tmp_path / "hif4_runtime_spec.pt"
+    torch.save({"variant": "fusable"}, sidecar)
+    native = build_lm_eval_vllm_kwargs(model_path="native", native_nvfp4=True)
+    assert native["tensor_parallel_size"] == 2
+    assert native["kv_cache_dtype"] == "bfloat16"
+    assert native["enforce_eager"] is True
+    assert native["linear_backend"] == "emulation"
+    assert native["moe_backend"] == "emulation"
+    converted = build_lm_eval_vllm_kwargs(
+        model_path="converted", hif4_runtime_spec_path=str(sidecar)
+    )
+    assert converted["additional_config"]["hif4_runtime_spec_path"] == str(sidecar)
 
 
 def test_export_switchable_linear_uses_weight_shape():

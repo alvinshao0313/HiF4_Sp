@@ -62,11 +62,14 @@ def test_default_hyperparameters():
     assert cfg.calib_source == "s1k_original"
     assert cfg.teacher_trace_policy == "all"
     assert cfg.start_layer == 0
-    assert cfg.end_layer == 35
+    assert cfg.end_layer == 47
     assert cfg.calib_cache_dir == ""
     assert cfg.fusable_diag_components == "all"
     assert cfg.calib_input_mode == "progressive_student"
     assert cfg.layer_rollback == "on"
+    assert cfg.loss_rollback == "inherit"
+    assert cfg.router_rollback == "inherit"
+    assert cfg.router_align_loss_weight == 0.0
 
 
 def test_calib_cache_dir_enters_to_dict():
@@ -75,6 +78,30 @@ def test_calib_cache_dir_enters_to_dict():
     )
     d = cfg.to_dict()
     assert d["calib_cache_dir"] == "/tmp/shared_calib"
+
+
+def test_router_alignment_and_rollback_cli_overrides():
+    cfg = parse_train_args(
+        [
+            "--output_dir",
+            "/tmp/out",
+            "--loss_rollback",
+            "on",
+            "--router_rollback",
+            "off",
+            "--router_align_loss_weight",
+            "0.5",
+        ]
+    )
+    assert cfg.loss_rollback == "on"
+    assert cfg.router_rollback == "off"
+    assert cfg.router_align_loss_weight == 0.5
+
+
+def test_online_rejects_router_alignment_loss():
+    cfg = E2ETrainConfig.for_test(diag_mode="online", router_align_loss_weight=0.5)
+    with pytest.raises(ValueError, match="only valid for diag_mode=fusable"):
+        validate_train_config(cfg)
 
 
 def test_online_rejects_partial_fusable_components():
@@ -89,7 +116,7 @@ def test_illegal_layer_range():
     with pytest.raises(ValueError, match="layer range"):
         validate_train_config(E2ETrainConfig.for_test(start_layer=-1, end_layer=1))
     with pytest.raises(ValueError, match="layer range"):
-        validate_train_config(E2ETrainConfig.for_test(start_layer=0, end_layer=36))
+        validate_train_config(E2ETrainConfig.for_test(start_layer=0, end_layer=48))
 
 
 def test_non_positive_sample_counts():
@@ -118,10 +145,25 @@ def test_s1k_allows_default_seqlen_without_using_it_as_truncation():
     validate_train_config(cfg)
 
 
-def test_online_allows_rot_then_diag_and_linear_independent():
+def test_moe_online_rejects_linear_independent():
     cfg = E2ETrainConfig.for_test(
         diag_mode="online",
         rot_order="rot_then_diag",
         diag_train_scope="linear_independent",
     )
-    validate_train_config(cfg)
+    with pytest.raises(ValueError, match="Qwen3 MoE"):
+        validate_train_config(cfg)
+
+
+def test_train_cli_dispatches_qwen3_moe_to_lazy_trainer(monkeypatch, tmp_path):
+    from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.cli import train as train_cli
+
+    calls = {}
+    monkeypatch.setattr(train_cli, "_require_cuda", lambda: "cuda")
+    monkeypatch.setattr(
+        train_cli,
+        "train_qwen3_moe_lazy",
+        lambda cfg, device: calls.update({"model_type": cfg.model_type, "device": device}),
+    )
+    train_cli.main(["--output_dir", str(tmp_path), "--end_layer", "0"])
+    assert calls == {"model_type": "qwen3_moe", "device": "cuda"}

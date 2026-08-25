@@ -22,7 +22,7 @@ from vllm.model_executor.custom_op import PluggableLayer
 from vllm.model_executor.layers.batch_invariant import (
     linear_batch_invariant,
 )
-from vllm.model_executor.layers.quantization import hif4_fake
+from vllm.model_executor.layers.quantization import hif4_fake, hif4_runtime
 from NVFP4.torch_fake import fake_quant_nvfp4_activation
 from vllm.model_executor.layers.quantization.base_config import (
     QuantizationConfig,
@@ -204,6 +204,7 @@ class UnquantizedLinearMethod(LinearMethodBase):
             else {}
         ) or {}
 
+        self.hif4_runtime_spec_path = additional_config.get("hif4_runtime_spec_path")
         self.fake_act_quant = additional_config.get("fake_act_quant", "none")
         if self.fake_act_quant not in ("none", "hif4", "nvfp4", "hif4-1"):
             raise ValueError(f"Unsupported fake_act_quant: {self.fake_act_quant}")
@@ -469,6 +470,11 @@ class UnquantizedLinearMethod(LinearMethodBase):
                 input_global_scale,
                 output_dtype=x.dtype,
             )
+        x = hif4_runtime.apply_dense_hif4_runtime(
+            getattr(layer, "prefix", ""),
+            x,
+            self.hif4_runtime_spec_path,
+        )
         if getattr(self, "dynamic_input_sparse_cfg", None) is not None:
             from Block_Sparse.dynamic_input_sparse.vllm_adapter import (  # noqa: E402
                 mask_linear_input,

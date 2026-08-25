@@ -59,11 +59,6 @@ wandb/
 # Local Codex / agent state
 .codex/
 AGENTS.md
-Block_Sparse/outputs/
-Block_Sparse/experiments/
-Block_Sparse/outputs/
-Block_Sparse/tests/
-**/experiments/
 **/outputs/
 **/data/
 **/models/
@@ -76,3 +71,7 @@ Block_Sparse/tests/
 **/.result/
 **/plans/
 **/plan/
+*.html
+*.json
+*.yaml
+*.jsonl

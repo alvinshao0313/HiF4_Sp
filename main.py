@@ -276,6 +276,12 @@ def parse_args():
         help="vLLM max_num_seqs：单轮迭代中最大并行序列数（与 EngineArgs.max_num_seqs 一致）。不设则使用 lighteval/vLLM 默认值",
     )
     parser.add_argument(
+        "--max_num_batched_tokens",
+        type=int,
+        default=None,
+        help="vLLM max_num_batched_tokens：限制单轮 profile/调度 token 数。不设则使用 vLLM 默认值",
+    )
+    parser.add_argument(
         "--custom_tasks",
         type=str,
         default=None,
@@ -334,6 +340,12 @@ def parse_args():
         type=str,
         default="auto",
         help="传给 vLLM：kv_cache_dtype（如 auto / bfloat16 / fp8 / fp8_e4m3 / fp8_e5m2）。默认 auto。",
+    )
+    parser.add_argument(
+        "--hif4_runtime_spec",
+        type=str,
+        default="",
+        help="HiF4 runtime sidecar 路径，通过 vLLM additional_config 传给 worker。",
     )
     parser.add_argument(
         "--fake_act_quant",
@@ -534,6 +546,9 @@ def main():
         ),
     )
     additional_config = {}
+    if args.hif4_runtime_spec:
+        additional_config["hif4_runtime_spec_path"] = args.hif4_runtime_spec
+        os.environ["HIF4_RUNTIME_SPEC_PATH"] = os.path.abspath(args.hif4_runtime_spec)
     if args.fake_act_quant != "none":
         additional_config["fake_act_quant"] = args.fake_act_quant
         exclude_list = [
@@ -585,6 +600,10 @@ def main():
         if args.batch_size < 1:
             raise ValueError("--batch_size 须为正整数")
         vllm_model_kwargs["max_num_seqs"] = args.batch_size
+    if args.max_num_batched_tokens is not None:
+        if args.max_num_batched_tokens < 1:
+            raise ValueError("--max_num_batched_tokens 须为正整数")
+        vllm_model_kwargs["max_num_batched_tokens"] = args.max_num_batched_tokens
     if args.pipeline_parallel_size is not None:
         if args.pipeline_parallel_size < 1:
             raise ValueError("--pipeline_parallel_size 须为 >= 1 的整数")

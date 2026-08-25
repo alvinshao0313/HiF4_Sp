@@ -1,0 +1,3787 @@
+diff --git a/.ai-bridge/agent-status.md b/.ai-bridge/agent-status.md
+index 287312a..58a5fd5 100644
+--- a/.ai-bridge/agent-status.md
++++ b/.ai-bridge/agent-status.md
+@@ -1,3 +1,22 @@
+ # Agent Status
+ 
+-No implementation agent status written yet.
++Task 0-13 audited, implemented, and verified through PASS.
++
++Current stop point: Task 13 complete. Do not start Task 14-19 formal 25-run training matrix automatically.
++
++Key Task 13 evidence:
++- Full e2e reconstruction tests: `CUDA_VISIBLE_DEVICES=0 conda run -n hif4 pytest Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction -q` -> `95 passed, 15 warnings`.
++- Old 8B baseline tests: `conda run -n hif4 pytest Native_NVFP4_HiF4_Linear_Puncture/tests/test_*.py -q` -> `68 passed`.
++- Task 13 I converted TP2 smoke: `/tmp/hif4_task13_smoke/I_E1_direct_converted_tp2_bf16.json` -> `passed=true`, `resolved_kv_cache_dtype=bfloat16`, `sidecar_effective=true`, trace `sidecar_load=2`, `dense_apply=288`, `moe_apply=2`.
++- Task 13 J Native E0 TP2 smoke: `/tmp/hif4_task13_smoke/J_native_tp2_bf16.json` -> `passed=true`, `resolved_linear_backend=emulation`, `resolved_moe_backend=emulation`, `resolved_kv_cache_dtype=bfloat16`, `no_marlin=true`.
++- Task 13 K TP parity diagnostic: `/tmp/hif4_task13_tp_parity/summary_top100.json` and `/tmp/hif4_task13_tp_parity/layer0_puncture.json`; evidence supports Case A, so greedy generation exact-match remains report-only under the revised numerical parity gate.
++
++Updated reports:
++- `Native_NVFP4_HiF4_Linear_Puncture/results/e2e_diag_reconstruction/QWEN3_30B_IMPLEMENTATION_PROGRESS.md`
++- `Native_NVFP4_HiF4_Linear_Puncture/results/e2e_diag_reconstruction/QWEN3_30B_IMPLEMENTATION_STOP_REASON.md`
++- `Native_NVFP4_HiF4_Linear_Puncture/results/e2e_diag_reconstruction/QWEN3_30B_TP_PARITY_DIAGNOSTIC.md`
++
++Review notes:
++- The converted vLLM sidecar path is now captured at unquantized linear/MoE method construction and passed explicitly at runtime; this avoids depending on execution-time thread-local vLLM config in worker processes.
++- Qwen3-MoE shared experts remain handled by the vLLM runner; the HiF4 MoE runtime returns only routed expert output.
++- `max_num_batched_tokens=512` is used only in the converted smoke to keep vLLM profile scale aligned with the 512-token Task 13 smoke target; TP2, BF16 KV, prompt batch, and generated token gate are unchanged.
+diff --git a/.ai-bridge/current-plan.md b/.ai-bridge/current-plan.md
+index dc6f06a..4b01222 100644
+--- a/.ai-bridge/current-plan.md
++++ b/.ai-bridge/current-plan.md
+@@ -1,22 +1,24 @@
+-# Qwen3-30B MoE NVFP4→HiF4
++# Resume Qwen3-30B MoE HiF4 implementation
+ 
+-Updated: 2026-08-21T08:18:24.519Z
++Updated: 2026-08-21T10:01:40.397Z
+ Workspace: /home/shaoyuantian/program/HiF4_Sp
+ Target agent: Codex (codex)
+ 
+ ## Plan
+ 
+-严格执行正式计划：`Native_NVFP4_HiF4_Linear_Puncture/plans/2026-08-21-qwen3-30b-a3b-native-nvfp4-to-hif4-moe-e2e-ablation-no-teacher-cot-plan-cn.md`。
++严格执行已修订计划：`Native_NVFP4_HiF4_Linear_Puncture/plans/2026-08-21-qwen3-30b-a3b-native-nvfp4-to-hif4-moe-e2e-ablation-no-teacher-cot-plan-cn.md`。
+ 
+-执行约束：
+-1. 从 Task 0 开始顺序执行，不得直接启动 Phase A–D 正式实验。
+-2. 先完成 Task 0–13 的代码适配、单测、Native-vLLM puncture、router compensation gate、TP2 sidecar correctness 和真实 smoke；所有 gate PASS 后再停止并汇报，由用户决定何时启动正式 25 个 training runs。
+-3. 不修改/删除旧 Qwen3-8B 历史计划与历史数学语义；MoE 适配使用计划指定的新模块。
+-4. 不自行改变已锁死设计：fusable shared D_QKV/D_VO/D_GU + per-expert D_UD；online expert-specific + layer_joint only；BF16 router inverse compensation；formal KV=BF16；layer-scoped lazy dequant；online correctness-first 可拆 q/k/v 与 gate/up。
+-5. Native teacher 必须匹配当前 vendored vLLM ModelOpt NVFP4 emulation 的 QKV/W13/W2 scale-collapse 语义，不得“修正”为 per-expert activation scale。
+-6. 不允许 Marlin W4A16 fallback，不允许 silent OOM/adaptive batch，不允许跳过数值门禁。
+-7. 所有 Python/pytest/训练命令使用 `hif4` conda 环境。
+-8. 当前工作区存在无关改动，不得覆盖或清理无关文件。
++当前不是从零开始，也不是直接从 Task 5 开始。固定恢复流程：
++1. 先做 Task 0～4 Definition-of-Done audit，只检查并补缺，不重写已经正确的文件。
++2. Task 3 当前已知未完成：`training/moe_layer_runtime.py` 不存在；`test_moe_native_teacher.py` 只有 QDQ 单测和 CUDA smoke，没有真实 attention projection vs vLLM emulation puncture、完整 routed MoE output puncture、router logits/top-k reference gate。先补完 Task 3 并实际 PASS。
++3. 重跑并验收 Task 4 的无-H16 transform equivalence tests。
++4. 然后连续执行 Task 5A→5E、Task 6、7、8、9、10、11、12、13。完成每个 Task 后更新 `Native_NVFP4_HiF4_Linear_Puncture/results/e2e_diag_reconstruction/QWEN3_30B_IMPLEMENTATION_PROGRESS.md`，验收通过立即继续下一 Task。
++5. 文件存在不等于 Task 完成；smoke 不能替代计划要求的 numerical/reference gate。
++6. 在 Task 13 前不得因为“本轮改动较多/适合 review/先汇报”主动停止。small/reviewable steps 只表示实现方式，不表示交还边界。
++7. Task 13 前唯一允许停止：真实 checkpoint/Transformers/vLLM 事实冲突会改变算法语义；数值门禁失败且需要用户选择新的算法定义；资源不足且无法在不改变固定实验口径下继续。触发时按计划写 `QWEN3_30B_IMPLEMENTATION_STOP_REASON.md`，否则继续修 bug。
++8. Task 13 全部 correctness/smoke PASS 后停止并汇报；不要自动启动 Task 14～19 的 25 个正式 training runs。
++9. 所有 Python/pytest/训练命令使用 `hif4` conda 环境；不允许 Marlin W4A16 fallback、silent OOM/adaptive batch；正式 KV=BF16；保持旧 8B 路径不被破坏。
++10. 当前工作区可能含无关改动，禁止清理或覆盖无关文件。
+ 
+ ## Implementation contract
+ 
+diff --git a/.ai-bridge/execution-log.jsonl b/.ai-bridge/execution-log.jsonl
+index e4192e3..57c3910 100644
+--- a/.ai-bridge/execution-log.jsonl
++++ b/.ai-bridge/execution-log.jsonl
+@@ -1,2 +1,5 @@
+ {"ts":"2026-08-21T02:22:15.260Z","event":"handoff_to_agent","agent":"custom","agent_name":"Cursor","title":"Backport vLLM NVFP4 emulation","plan_path":".ai-bridge/current-plan.md","status_path":".ai-bridge/agent-status.md","diff_path":".ai-bridge/implementation-diff.patch"}
+ {"ts":"2026-08-21T08:18:24.526Z","event":"handoff_to_agent","agent":"codex","agent_name":"Codex","title":"Qwen3-30B MoE NVFP4→HiF4","plan_path":".ai-bridge/current-plan.md","status_path":".ai-bridge/agent-status.md","diff_path":".ai-bridge/implementation-diff.patch"}
++{"ts":"2026-08-21T10:01:40.409Z","event":"handoff_to_agent","agent":"codex","agent_name":"Codex","title":"Resume Qwen3-30B MoE HiF4 implementation","plan_path":".ai-bridge/current-plan.md","status_path":".ai-bridge/agent-status.md","diff_path":".ai-bridge/implementation-diff.patch"}
++{"ts":"2026-08-21T10:58:33.094Z","event":"agent_stop","agent":"codex","agent_name":"Codex","title":"Task 13 K gate failed","status":"blocked_by_native_tp1_tp2_generation_divergence","stop_reason_path":"Native_NVFP4_HiF4_Linear_Puncture/results/e2e_diag_reconstruction/QWEN3_30B_IMPLEMENTATION_STOP_REASON.md","progress_path":"Native_NVFP4_HiF4_Linear_Puncture/results/e2e_diag_reconstruction/QWEN3_30B_IMPLEMENTATION_PROGRESS.md"}
++{"ts":"2026-08-21T15:22:40.883Z","event":"agent_complete","agent":"codex","agent_name":"Codex","title":"Task 0-13 Qwen3-30B MoE HiF4 gates complete","status":"task13_pass_stop_before_task14","progress_path":"Native_NVFP4_HiF4_Linear_Puncture/results/e2e_diag_reconstruction/QWEN3_30B_IMPLEMENTATION_PROGRESS.md","status_path":".ai-bridge/agent-status.md","diff_path":".ai-bridge/implementation-diff.patch"}
+diff --git a/.ai-bridge/session-log.jsonl b/.ai-bridge/session-log.jsonl
+index e4192e3..163d70e 100644
+--- a/.ai-bridge/session-log.jsonl
++++ b/.ai-bridge/session-log.jsonl
+@@ -1,2 +1,5 @@
+ {"ts":"2026-08-21T02:22:15.260Z","event":"handoff_to_agent","agent":"custom","agent_name":"Cursor","title":"Backport vLLM NVFP4 emulation","plan_path":".ai-bridge/current-plan.md","status_path":".ai-bridge/agent-status.md","diff_path":".ai-bridge/implementation-diff.patch"}
+ {"ts":"2026-08-21T08:18:24.526Z","event":"handoff_to_agent","agent":"codex","agent_name":"Codex","title":"Qwen3-30B MoE NVFP4→HiF4","plan_path":".ai-bridge/current-plan.md","status_path":".ai-bridge/agent-status.md","diff_path":".ai-bridge/implementation-diff.patch"}
++{"ts":"2026-08-21T10:01:40.408Z","event":"handoff_to_agent","agent":"codex","agent_name":"Codex","title":"Resume Qwen3-30B MoE HiF4 implementation","plan_path":".ai-bridge/current-plan.md","status_path":".ai-bridge/agent-status.md","diff_path":".ai-bridge/implementation-diff.patch"}
++{"ts":"2026-08-21T10:58:33.094Z","event":"agent_stop","agent":"codex","agent_name":"Codex","title":"Task 13 K gate failed","status":"blocked_by_native_tp1_tp2_generation_divergence","stop_reason_path":"Native_NVFP4_HiF4_Linear_Puncture/results/e2e_diag_reconstruction/QWEN3_30B_IMPLEMENTATION_STOP_REASON.md","progress_path":"Native_NVFP4_HiF4_Linear_Puncture/results/e2e_diag_reconstruction/QWEN3_30B_IMPLEMENTATION_PROGRESS.md"}
++{"ts":"2026-08-21T15:22:40.883Z","event":"agent_complete","agent":"codex","agent_name":"Codex","title":"Task 0-13 Qwen3-30B MoE HiF4 gates complete","status":"task13_pass_stop_before_task14","progress_path":"Native_NVFP4_HiF4_Linear_Puncture/results/e2e_diag_reconstruction/QWEN3_30B_IMPLEMENTATION_PROGRESS.md","status_path":".ai-bridge/agent-status.md","diff_path":".ai-bridge/implementation-diff.patch"}
+diff --git a/3rdparty/vllm/vllm/model_executor/layers/fused_moe/experts/hif4_emulation_moe.py b/3rdparty/vllm/vllm/model_executor/layers/fused_moe/experts/hif4_emulation_moe.py
+new file mode 100644
+index 0000000..bbbb36e
+--- /dev/null
++++ b/3rdparty/vllm/vllm/model_executor/layers/fused_moe/experts/hif4_emulation_moe.py
+@@ -0,0 +1,32 @@
++"""HiF4 fusable/direct MoE correctness runtime."""
++
++from __future__ import annotations
++
++import torch
++import torch.nn.functional as F
++
++from vllm.model_executor.layers.quantization import hif4_fake
++
++
++def apply_hif4_fused_moe(
++    hidden_states: torch.Tensor,
++    w13: torch.Tensor,
++    w2: torch.Tensor,
++    topk_weights: torch.Tensor,
++    topk_ids: torch.Tensor,
++) -> torch.Tensor:
++    num_tokens, hidden = hidden_states.shape
++    out = torch.zeros_like(hidden_states)
++    x_q = hif4_fake.hif4_fake_quantize_hifx4(hidden_states)
++    for token in range(num_tokens):
++        acc = torch.zeros(hidden, device=hidden_states.device, dtype=torch.float32)
++        for slot in range(topk_ids.shape[1]):
++            expert = int(topk_ids[token, slot].item())
++            gu = F.linear(x_q[token], w13[expert])
++            gate, up = gu.chunk(2, dim=-1)
++            act = F.silu(gate) * up
++            act_q = hif4_fake.hif4_fake_quantize_hifx4(act.unsqueeze(0)).squeeze(0)
++            down = F.linear(act_q, w2[expert])
++            acc += down.float() * float(topk_weights[token, slot].item())
++        out[token] = acc.to(out.dtype)
++    return out
+diff --git a/3rdparty/vllm/vllm/model_executor/layers/fused_moe/experts/hif4_online_reference_moe.py b/3rdparty/vllm/vllm/model_executor/layers/fused_moe/experts/hif4_online_reference_moe.py
+new file mode 100644
+index 0000000..44177f3
+--- /dev/null
++++ b/3rdparty/vllm/vllm/model_executor/layers/fused_moe/experts/hif4_online_reference_moe.py
+@@ -0,0 +1,47 @@
++"""HiF4 online expert-specific MoE correctness runtime."""
++
++from __future__ import annotations
++
++import torch
++import torch.nn.functional as F
++
++from vllm.model_executor.layers.quantization import hif4_fake
++
++
++def _scale(z: torch.Tensor) -> torch.Tensor:
++    return torch.exp2(z.to(torch.float32))
++
++
++def apply_hif4_online_reference_moe(
++    hidden_states: torch.Tensor,
++    gate_weight: torch.Tensor,
++    up_weight: torch.Tensor,
++    down_weight: torch.Tensor,
++    topk_weights: torch.Tensor,
++    topk_ids: torch.Tensor,
++    z_gate: torch.Tensor,
++    z_up: torch.Tensor,
++    z_down: torch.Tensor,
++) -> torch.Tensor:
++    num_tokens, hidden = hidden_states.shape
++    out = torch.zeros_like(hidden_states)
++    for token in range(num_tokens):
++        acc = torch.zeros(hidden, device=hidden_states.device, dtype=torch.float32)
++        for slot in range(topk_ids.shape[1]):
++            expert = int(topk_ids[token, slot].item())
++            x_gate = hif4_fake.hif4_fake_quantize_hifx4(
++                hidden_states[token].float().mul(_scale(z_gate[expert]).to(hidden_states.device)).unsqueeze(0)
++            ).squeeze(0)
++            x_up = hif4_fake.hif4_fake_quantize_hifx4(
++                hidden_states[token].float().mul(_scale(z_up[expert]).to(hidden_states.device)).unsqueeze(0)
++            ).squeeze(0)
++            gate = F.linear(x_gate.to(gate_weight.dtype), gate_weight[expert])
++            up = F.linear(x_up.to(up_weight.dtype), up_weight[expert])
++            act = F.silu(gate) * up
++            act_q = hif4_fake.hif4_fake_quantize_hifx4(
++                act.float().mul(_scale(z_down[expert]).to(act.device)).unsqueeze(0)
++            ).squeeze(0)
++            down = F.linear(act_q.to(down_weight.dtype), down_weight[expert])
++            acc += down.float() * float(topk_weights[token, slot].item())
++        out[token] = acc.to(out.dtype)
++    return out
+diff --git a/3rdparty/vllm/vllm/model_executor/layers/fused_moe/unquantized_fused_moe_method.py b/3rdparty/vllm/vllm/model_executor/layers/fused_moe/unquantized_fused_moe_method.py
+index a29d8a7..1e18228 100644
+--- a/3rdparty/vllm/vllm/model_executor/layers/fused_moe/unquantized_fused_moe_method.py
++++ b/3rdparty/vllm/vllm/model_executor/layers/fused_moe/unquantized_fused_moe_method.py
+@@ -59,6 +59,15 @@ class UnquantizedFusedMoEMethod(FusedMoEMethodBase, CustomOp):
+ 
+     def __init__(self, moe: FusedMoEConfig):
+         super().__init__(moe)
++        from vllm.config import get_current_vllm_config_or_none
++
++        vllm_config = get_current_vllm_config_or_none()
++        additional_config = (
++            getattr(vllm_config, "additional_config", {})
++            if vllm_config is not None
++            else {}
++        ) or {}
++        self.hif4_runtime_spec_path = additional_config.get("hif4_runtime_spec_path")
+         self.unquantized_backend = select_unquantized_moe_backend(
+             moe_config=self.moe,
+             use_ep=self.moe.moe_parallel_config.use_ep,
+@@ -298,6 +307,17 @@ class UnquantizedFusedMoEMethod(FusedMoEMethodBase, CustomOp):
+         topk_ids: torch.Tensor,
+         shared_experts_input: torch.Tensor | None,
+     ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
++        from vllm.model_executor.layers.quantization import hif4_runtime
++
++        spec = hif4_runtime.current_hif4_runtime_spec(self.hif4_runtime_spec_path)
++        if spec is not None:
++            if spec.get("variant") in {"direct", "fusable", "r64", "fusable_r64"}:
++                from vllm.model_executor.layers.fused_moe.experts.hif4_emulation_moe import (
++                    apply_hif4_fused_moe,
++                )
++
++                hif4_runtime.trace_hif4_runtime_event("moe_apply", variant=spec.get("variant"))
++                return apply_hif4_fused_moe(x, layer.w13_weight, layer.w2_weight, topk_weights, topk_ids)
+         return self.forward(
+             layer=layer,
+             x=x,
+diff --git a/3rdparty/vllm/vllm/model_executor/layers/linear.py b/3rdparty/vllm/vllm/model_executor/layers/linear.py
+index 1144ef7..5d63592 100644
+--- a/3rdparty/vllm/vllm/model_executor/layers/linear.py
++++ b/3rdparty/vllm/vllm/model_executor/layers/linear.py
+@@ -22,7 +22,7 @@ from vllm.model_executor.custom_op import PluggableLayer
+ from vllm.model_executor.layers.batch_invariant import (
+     linear_batch_invariant,
+ )
+-from vllm.model_executor.layers.quantization import hif4_fake
++from vllm.model_executor.layers.quantization import hif4_fake, hif4_runtime
+ from NVFP4.torch_fake import fake_quant_nvfp4_activation
+ from vllm.model_executor.layers.quantization.base_config import (
+     QuantizationConfig,
+@@ -204,6 +204,7 @@ class UnquantizedLinearMethod(LinearMethodBase):
+             else {}
+         ) or {}
+ 
++        self.hif4_runtime_spec_path = additional_config.get("hif4_runtime_spec_path")
+         self.fake_act_quant = additional_config.get("fake_act_quant", "none")
+         if self.fake_act_quant not in ("none", "hif4", "nvfp4", "hif4-1"):
+             raise ValueError(f"Unsupported fake_act_quant: {self.fake_act_quant}")
+@@ -469,6 +470,11 @@ class UnquantizedLinearMethod(LinearMethodBase):
+                 input_global_scale,
+                 output_dtype=x.dtype,
+             )
++        x = hif4_runtime.apply_dense_hif4_runtime(
++            getattr(layer, "prefix", ""),
++            x,
++            self.hif4_runtime_spec_path,
++        )
+         if getattr(self, "dynamic_input_sparse_cfg", None) is not None:
+             from Block_Sparse.dynamic_input_sparse.vllm_adapter import (  # noqa: E402
+                 mask_linear_input,
+diff --git a/3rdparty/vllm/vllm/model_executor/layers/quantization/hif4_runtime.py b/3rdparty/vllm/vllm/model_executor/layers/quantization/hif4_runtime.py
+new file mode 100644
+index 0000000..06a66d0
+--- /dev/null
++++ b/3rdparty/vllm/vllm/model_executor/layers/quantization/hif4_runtime.py
+@@ -0,0 +1,88 @@
++"""Sidecar-aware HiF4 runtime helpers for unquantized vLLM layers."""
++
++from __future__ import annotations
++
++import os
++from pathlib import Path
++from typing import Any
++
++import torch
++
++from vllm.config import get_current_vllm_config_or_none
++from vllm.model_executor.layers.quantization import hif4_fake
++
++_SIDECAR_CACHE: dict[str, dict[str, Any]] = {}
++_TRACE_SEEN: set[tuple[str, str]] = set()
++
++
++def trace_hif4_runtime_event(event: str, **fields: Any) -> None:
++    trace_path = os.environ.get("HIF4_RUNTIME_TRACE_JSONL")
++    if not trace_path:
++        return
++    key = (event, str(fields.get("path") or fields.get("prefix") or ""))
++    if key in _TRACE_SEEN:
++        return
++    _TRACE_SEEN.add(key)
++    import json
++    import time
++
++    record = {"event": event, "pid": os.getpid(), "time": time.time(), **fields}
++    with open(trace_path, "a", encoding="utf-8") as f:
++        f.write(json.dumps(record, sort_keys=True) + "\n")
++
++
++def _sidecar_path_from_config(path: str | os.PathLike[str] | None = None) -> str | None:
++    if path not in (None, ""):
++        return os.path.abspath(os.fspath(path))
++    cfg = get_current_vllm_config_or_none()
++    additional = (getattr(cfg, "additional_config", {}) if cfg is not None else {}) or {}
++    cfg_path = additional.get("hif4_runtime_spec_path")
++    env_path = os.environ.get("HIF4_RUNTIME_SPEC_PATH")
++    selected = cfg_path if cfg_path not in (None, "") else env_path
++    return None if selected in (None, "") else os.path.abspath(str(selected))
++
++
++def load_hif4_runtime_spec(path: str | os.PathLike[str]) -> dict[str, Any]:
++    resolved = os.path.abspath(os.fspath(path))
++    if resolved not in _SIDECAR_CACHE:
++        if not Path(resolved).is_file():
++            raise FileNotFoundError(f"HiF4 runtime sidecar not found: {resolved}")
++        _SIDECAR_CACHE[resolved] = torch.load(resolved, map_location="cpu", weights_only=False)
++        trace_hif4_runtime_event(
++            "sidecar_load",
++            path=resolved,
++            variant=_SIDECAR_CACHE[resolved].get("variant"),
++        )
++    return _SIDECAR_CACHE[resolved]
++
++
++def current_hif4_runtime_spec(
++    path: str | os.PathLike[str] | None = None,
++) -> dict[str, Any] | None:
++    resolved = _sidecar_path_from_config(path)
++    if resolved is None:
++        return None
++    return load_hif4_runtime_spec(resolved)
++
++
++def apply_dense_hif4_runtime(
++    prefix: str,
++    x: torch.Tensor,
++    path: str | os.PathLike[str] | None = None,
++) -> torch.Tensor:
++    spec = current_hif4_runtime_spec(path)
++    if spec is None:
++        return x
++    if prefix == "lm_head" or prefix.endswith(".lm_head"):
++        return x
++    variant = spec.get("variant")
++    if variant in {"direct", "fusable", "r64", "fusable_r64"}:
++        trace_hif4_runtime_event("dense_apply", prefix=prefix, variant=variant)
++        return hif4_fake.hif4_fake_quantize_hifx4(x)
++    if variant == "online":
++        # Correctness-first placeholder for dense attention online.  Materializer
++        # stores transformed weights; online activation DIAG is read from this
++        # sidecar by later MoE/attention reference paths.
++        trace_hif4_runtime_event("dense_apply", prefix=prefix, variant=variant)
++        return hif4_fake.hif4_fake_quantize_hifx4(x)
++    raise ValueError(f"unsupported hif4 runtime variant={variant!r} for {prefix}")
+diff --git a/NVFP4/scripts/diagnose_qwen3_30b_nvfp4_layer_tp_puncture.py b/NVFP4/scripts/diagnose_qwen3_30b_nvfp4_layer_tp_puncture.py
+new file mode 100644
+index 0000000..35ae73b
+--- /dev/null
++++ b/NVFP4/scripts/diagnose_qwen3_30b_nvfp4_layer_tp_puncture.py
+@@ -0,0 +1,246 @@
++#!/usr/bin/env python3
++"""Layer-level TP1/TP2 puncture for Qwen3-30B-A3B NVFP4 emulation semantics."""
++
++from __future__ import annotations
++
++import argparse
++import json
++import math
++import sys
++from pathlib import Path
++from typing import Any
++
++import torch
++import torch.nn.functional as F
++
++REPO_ROOT = Path(__file__).resolve().parents[2]
++if str(REPO_ROOT) not in sys.path:
++    sys.path.insert(0, str(REPO_ROOT))
++VLLM_ROOT = REPO_ROOT / "3rdparty" / "vllm"
++if str(VLLM_ROOT) not in sys.path:
++    sys.path.insert(0, str(VLLM_ROOT))
++
++from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.modelopt_moe_checkpoint import (  # noqa: E402
++    load_qwen3_moe_layer_state,
++    release_qwen3_moe_layer_state,
++)
++from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.moe_model_spec import (  # noqa: E402
++    QWEN3_30B_A3B_NVFP4,
++)
++from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.moe_semantic_hif4 import (  # noqa: E402
++    native_nvfp4_linear,
++    qdq_native_nvfp4,
++)
++from Native_NVFP4_HiF4_Linear_Puncture.src.checkpoint import resolve_local_snapshot  # noqa: E402
++
++
++def _metrics(a: torch.Tensor, b: torch.Tensor) -> dict[str, float]:
++    af = a.detach().float().reshape(-1)
++    bf = b.detach().float().reshape(-1)
++    diff = af - bf
++    den = torch.linalg.vector_norm(af).clamp_min(1e-30)
++    mse = diff.square().mean()
++    power = af.square().mean().clamp_min(1e-30)
++    return {
++        "max_abs": float(diff.abs().max().item()),
++        "mean_abs": float(diff.abs().mean().item()),
++        "rel_l2": float((torch.linalg.vector_norm(diff) / den).item()),
++        "nmse": float((mse / power).item()),
++    }
++
++
++def _linear_full(x: torch.Tensor, weight: torch.Tensor, scale_inv: torch.Tensor) -> torch.Tensor:
++    return native_nvfp4_linear(x, weight, scale_inv)
++
++
++def _linear_col_tp2(x: torch.Tensor, weight: torch.Tensor, scale_inv: torch.Tensor) -> torch.Tensor:
++    xq = qdq_native_nvfp4(x, scale_inv)
++    parts = []
++    for w in weight.chunk(2, dim=0):
++        parts.append(F.linear(xq, w.to(device=x.device, dtype=xq.dtype)))
++    return torch.cat(parts, dim=-1)
++
++
++def _linear_row_tp2(x: torch.Tensor, weight: torch.Tensor, scale_inv: torch.Tensor) -> torch.Tensor:
++    xq = qdq_native_nvfp4(x, scale_inv)
++    xs = xq.chunk(2, dim=-1)
++    ws = weight.chunk(2, dim=1)
++    parts = [
++        F.linear(xi, wi.to(device=x.device, dtype=xq.dtype))
++        for xi, wi in zip(xs, ws, strict=True)
++    ]
++    return parts[0] + parts[1]
++
++
++def _router(hidden: torch.Tensor, router_weight: torch.Tensor, top_k: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
++    logits = F.linear(hidden.to(router_weight.dtype), router_weight)
++    probs = torch.softmax(logits, dtype=torch.float32, dim=-1)
++    weights, ids = torch.topk(probs, top_k, dim=-1)
++    weights = (weights / weights.sum(dim=-1, keepdim=True)).to(logits.dtype)
++    return logits, weights, ids
++
++
++def _w13_full(x: torch.Tensor, expert, gate_scale: torch.Tensor, up_scale: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
++    gate = _linear_full(x, expert.gate_proj, gate_scale)
++    up = _linear_full(x, expert.up_proj, up_scale)
++    return gate, up, F.silu(gate) * up
++
++
++def _w13_col_tp2(x: torch.Tensor, expert, gate_scale: torch.Tensor, up_scale: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
++    gate = _linear_col_tp2(x, expert.gate_proj, gate_scale)
++    up = _linear_col_tp2(x, expert.up_proj, up_scale)
++    return gate, up, F.silu(gate) * up
++
++
++def _moe_full(x: torch.Tensor, state) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
++    logits, routing_weights, selected = _router(x, state.router_weight, state.spec.top_k)
++    output = torch.zeros_like(x)
++    first: dict[str, torch.Tensor] = {}
++    for expert_idx in selected.unique(sorted=True).tolist():
++        expert = state.experts[int(expert_idx)]
++        token_idx, topk_pos = torch.where(selected == expert_idx)
++        current = x[token_idx]
++        gate, up, swiglu = _w13_full(
++            current,
++            expert,
++            expert.gate_metadata.input_global_scale_inv,
++            expert.up_metadata.input_global_scale_inv,
++        )
++        down = _linear_full(swiglu, expert.down_proj, expert.down_metadata.input_global_scale_inv)
++        output.index_add_(0, token_idx, down.to(output.dtype) * routing_weights[token_idx, topk_pos, None])
++        if not first:
++            first = {
++                "expert_idx": torch.tensor(int(expert_idx)),
++                "gate": gate,
++                "up": up,
++                "swiglu": swiglu,
++                "down": down,
++            }
++    first["router_logits"] = logits
++    first["selected_experts"] = selected
++    return output, first
++
++
++def _moe_tp2(x: torch.Tensor, state) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
++    logits, routing_weights, selected = _router(x, state.router_weight, state.spec.top_k)
++    output = torch.zeros_like(x)
++    first: dict[str, torch.Tensor] = {}
++    for expert_idx in selected.unique(sorted=True).tolist():
++        expert = state.experts[int(expert_idx)]
++        token_idx, topk_pos = torch.where(selected == expert_idx)
++        current = x[token_idx]
++        gate, up, swiglu = _w13_col_tp2(
++            current,
++            expert,
++            expert.gate_metadata.input_global_scale_inv,
++            expert.up_metadata.input_global_scale_inv,
++        )
++        down = _linear_row_tp2(swiglu, expert.down_proj, expert.down_metadata.input_global_scale_inv)
++        output.index_add_(0, token_idx, down.to(output.dtype) * routing_weights[token_idx, topk_pos, None])
++        if not first:
++            first = {
++                "expert_idx": torch.tensor(int(expert_idx)),
++                "gate": gate,
++                "up": up,
++                "swiglu": swiglu,
++                "down": down,
++            }
++    first["router_logits"] = logits
++    first["selected_experts"] = selected
++    return output, first
++
++
++def _scale_invariants(state) -> dict[str, Any]:
++    qkv_inputs = [
++        float(state.attention_metadata[p].input_global_scale_inv.item())
++        for p in ("q_proj", "k_proj", "v_proj")
++    ]
++    qkv_weights = [
++        float(state.attention_metadata[p].weight_global_scale.item())
++        for p in ("q_proj", "k_proj", "v_proj")
++    ]
++    gate_inputs = [float(e.gate_metadata.input_global_scale_inv.item()) for e in state.experts]
++    up_inputs = [float(e.up_metadata.input_global_scale_inv.item()) for e in state.experts]
++    down_inputs = [float(e.down_metadata.input_global_scale_inv.item()) for e in state.experts]
++    return {
++        "qkv_input_global_scale_inv_all_equal": len(set(qkv_inputs)) == 1,
++        "qkv_weight_global_scale_all_equal": len(set(qkv_weights)) == 1,
++        "moe_a13_input_global_scale_inv_all_equal": len(set(gate_inputs + up_inputs)) == 1,
++        "moe_a2_input_global_scale_inv_all_equal": len(set(down_inputs)) == 1,
++        "group16_boundaries_tp2": {
++            "hidden_half_mod16": (state.spec.hidden_size // 2) % 16,
++            "q_out_half_mod16": (state.attention["q_proj"].shape[0] // 2) % 16,
++            "kv_out_half_mod16": (state.attention["k_proj"].shape[0] // 2) % 16,
++            "moe_intermediate_half_mod16": (state.spec.moe_intermediate_size // 2) % 16,
++        },
++    }
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser()
++    parser.add_argument("--checkpoint", type=str, default=QWEN3_30B_A3B_NVFP4)
++    parser.add_argument("--layer", type=int, default=0)
++    parser.add_argument("--tokens", type=int, default=4)
++    parser.add_argument("--seed", type=int, default=123)
++    parser.add_argument("--out-json", type=Path, default=Path("/tmp/hif4_task13_tp_parity/layer_puncture.json"))
++    args = parser.parse_args()
++
++    if not torch.cuda.is_available():
++        raise RuntimeError("layer TP puncture requires CUDA")
++    device = torch.device("cuda")
++    snapshot = Path(resolve_local_snapshot(args.checkpoint))
++    state = load_qwen3_moe_layer_state(snapshot, args.layer, device)
++    try:
++        torch.manual_seed(args.seed)
++        hidden = torch.randn(args.tokens, state.spec.hidden_size, device=device, dtype=torch.bfloat16)
++        o_input = torch.randn(
++            args.tokens,
++            state.attention["o_proj"].shape[1],
++            device=device,
++            dtype=torch.bfloat16,
++        )
++
++        report: dict[str, Any] = {
++            "checkpoint": str(snapshot),
++            "layer": int(args.layer),
++            "tokens": int(args.tokens),
++            "seed": int(args.seed),
++            "invariants": _scale_invariants(state),
++            "metrics": {},
++        }
++        for proj in ("q_proj", "k_proj", "v_proj"):
++            full = _linear_full(hidden, state.attention[proj], state.attention_metadata[proj].input_global_scale_inv)
++            tp2 = _linear_col_tp2(hidden, state.attention[proj], state.attention_metadata[proj].input_global_scale_inv)
++            report["metrics"][proj] = _metrics(full, tp2)
++
++        full_o = _linear_full(o_input, state.attention["o_proj"], state.attention_metadata["o_proj"].input_global_scale_inv)
++        tp2_o = _linear_row_tp2(o_input, state.attention["o_proj"], state.attention_metadata["o_proj"].input_global_scale_inv)
++        report["metrics"]["o_proj_row_reduce"] = _metrics(full_o, tp2_o)
++
++        router_full, _, selected_full = _router(hidden, state.router_weight, state.spec.top_k)
++        router_tp2, _, selected_tp2 = _router(hidden, state.router_weight, state.spec.top_k)
++        report["metrics"]["router_logits"] = _metrics(router_full, router_tp2)
++        report["router_selected_experts_equal"] = bool(torch.equal(selected_full, selected_tp2))
++
++        moe_full, first_full = _moe_full(hidden, state)
++        moe_tp2, first_tp2 = _moe_tp2(hidden, state)
++        for name in ("gate", "up", "swiglu", "down"):
++            report["metrics"][f"moe_first_expert_{name}"] = _metrics(first_full[name], first_tp2[name])
++        report["metrics"]["complete_moe_output"] = _metrics(moe_full, moe_tp2)
++        report["moe_selected_experts_equal"] = bool(
++            torch.equal(first_full["selected_experts"], first_tp2["selected_experts"])
++        )
++
++        args.out_json.parent.mkdir(parents=True, exist_ok=True)
++        args.out_json.write_text(
++            json.dumps(report, indent=2, ensure_ascii=False) + "\n",
++            encoding="utf-8",
++        )
++        print(json.dumps(report, indent=2, ensure_ascii=False), flush=True)
++    finally:
++        release_qwen3_moe_layer_state(state)
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/NVFP4/scripts/diagnose_qwen3_30b_nvfp4_tp_parity.py b/NVFP4/scripts/diagnose_qwen3_30b_nvfp4_tp_parity.py
+new file mode 100644
+index 0000000..96ff600
+--- /dev/null
++++ b/NVFP4/scripts/diagnose_qwen3_30b_nvfp4_tp_parity.py
+@@ -0,0 +1,351 @@
++#!/usr/bin/env python3
++"""Diagnose TP1/TP2 parity for Qwen3-30B-A3B ModelOpt NVFP4 emulation.
++
++This is a diagnostic script, not the Task 13 generation smoke.  It compares
++identical-input next-token top-N scores and stops analysis at the first greedy
++token divergence for each prompt.
++"""
++
++from __future__ import annotations
++
++import argparse
++import gc
++import json
++import math
++import os
++import subprocess
++import sys
++import traceback
++from pathlib import Path
++from typing import Any
++
++REPO_ROOT = Path(__file__).resolve().parents[2]
++if str(REPO_ROOT) not in sys.path:
++    sys.path.insert(0, str(REPO_ROOT))
++VLLM_ROOT = REPO_ROOT / "3rdparty" / "vllm"
++if str(VLLM_ROOT) not in sys.path:
++    sys.path.insert(0, str(VLLM_ROOT))
++
++DEFAULT_CKPT = (
++    Path.home()
++    / ".cache/huggingface/hub/models--nvidia--Qwen3-30B-A3B-NVFP4"
++    / "snapshots/2538ded2a4edb247b4d2b4a8ba24e44bd4c017c3"
++)
++
++PROMPTS = [
++    "Hello",
++    "1+1=",
++    "The capital of France is",
++    "Write one word: ok",
++]
++
++
++def _score_rows(pos: dict[int, Any]) -> list[dict[str, Any]]:
++    rows: list[dict[str, Any]] = []
++    for token_id, obj in pos.items():
++        rows.append(
++            {
++                "token_id": int(token_id),
++                "score": float(obj.logprob),
++                "decoded_token": getattr(obj, "decoded_token", None),
++                "rank": getattr(obj, "rank", None),
++            }
++        )
++    rows.sort(key=lambda row: (-float(row["score"]), int(row["token_id"])))
++    return rows
++
++
++def _run_single(args: argparse.Namespace) -> int:
++    result: dict[str, Any] = {
++        "tp": int(args.single_tp),
++        "checkpoint": str(args.checkpoint),
++        "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
++        "kv_cache_dtype": "bfloat16",
++        "linear_backend": "emulation",
++        "moe_backend": "emulation",
++        "enforce_eager": True,
++        "async_scheduling": False,
++        "enable_prefix_caching": False,
++        "max_model_len": int(args.max_model_len),
++        "max_new_tokens": int(args.max_new_tokens),
++        "top_logprobs": int(args.top_logprobs),
++        "logprobs_mode": str(args.logprobs_mode),
++        "passed": False,
++        "error": None,
++    }
++    llm = None
++    try:
++        from vllm import LLM, SamplingParams
++
++        llm = LLM(
++            model=str(args.checkpoint),
++            trust_remote_code=True,
++            tensor_parallel_size=int(args.single_tp),
++            dtype="auto",
++            enforce_eager=True,
++            max_model_len=int(args.max_model_len),
++            gpu_memory_utilization=float(args.gpu_memory_utilization),
++            linear_backend="emulation",
++            moe_backend="emulation",
++            kv_cache_dtype="bfloat16",
++            enable_prefix_caching=False,
++            async_scheduling=False,
++            max_logprobs=int(args.top_logprobs),
++            logprobs_mode=str(args.logprobs_mode),
++        )
++        import torch
++
++        result["gpu_count_visible"] = torch.cuda.device_count()
++        result["gpu_name"] = torch.cuda.get_device_name(0)
++        vcfg = llm.llm_engine.vllm_config
++        result["resolved_linear_backend"] = getattr(
++            vcfg.kernel_config, "linear_backend", None
++        )
++        result["resolved_moe_backend"] = getattr(
++            vcfg.kernel_config, "moe_backend", None
++        )
++        result["resolved_kv_cache_dtype"] = str(
++            getattr(vcfg.cache_config, "cache_dtype", None)
++        )
++        result["resolved_async_scheduling"] = bool(
++            getattr(vcfg.scheduler_config, "async_scheduling", True)
++        )
++
++        sp = SamplingParams(
++            temperature=0.0,
++            top_p=1.0,
++            max_tokens=int(args.max_new_tokens),
++            logprobs=int(args.top_logprobs),
++        )
++        outputs = llm.generate(PROMPTS, sp)
++        generations: list[dict[str, Any]] = []
++        for out in outputs:
++            completion = out.outputs[0]
++            scores = [_score_rows(pos) for pos in (completion.logprobs or [])]
++            generations.append(
++                {
++                    "prompt": out.prompt,
++                    "text": completion.text,
++                    "token_ids": list(completion.token_ids),
++                    "scores": scores,
++                }
++            )
++        result["generations"] = generations
++        result["passed"] = (
++            result["resolved_linear_backend"] == "emulation"
++            and result["resolved_moe_backend"] == "emulation"
++            and result["resolved_kv_cache_dtype"] == "bfloat16"
++            and result["resolved_async_scheduling"] is False
++        )
++    except Exception as exc:
++        result["error"] = f"{type(exc).__name__}: {exc}"
++        result["traceback"] = traceback.format_exc()
++        print(result["traceback"], file=sys.stderr, flush=True)
++    finally:
++        args.out_json.parent.mkdir(parents=True, exist_ok=True)
++        args.out_json.write_text(
++            json.dumps(result, indent=2, ensure_ascii=False) + "\n",
++            encoding="utf-8",
++        )
++        try:
++            del llm
++        except Exception:
++            pass
++        try:
++            import torch
++
++            gc.collect()
++            torch.cuda.empty_cache()
++        except Exception:
++            pass
++    print(
++        json.dumps(
++            {
++                "tp": result["tp"],
++                "passed": result["passed"],
++                "cuda_visible_devices": result["cuda_visible_devices"],
++                "resolved_async_scheduling": result.get("resolved_async_scheduling"),
++                "out_json": str(args.out_json),
++            },
++            indent=2,
++        ),
++        flush=True,
++    )
++    return 0 if result["passed"] else 1
++
++
++def _by_token(rows: list[dict[str, Any]]) -> dict[int, float]:
++    return {int(row["token_id"]): float(row["score"]) for row in rows}
++
++
++def _top_tokens(rows: list[dict[str, Any]], k: int) -> list[int]:
++    return [int(row["token_id"]) for row in rows[:k]]
++
++
++def _score_metrics(rows_a: list[dict[str, Any]], rows_b: list[dict[str, Any]]) -> dict[str, Any]:
++    a = _by_token(rows_a)
++    b = _by_token(rows_b)
++    shared = sorted(set(a) & set(b))
++    diffs = [a[tok] - b[tok] for tok in shared]
++    abs_diffs = [abs(x) for x in diffs]
++    norm_a = math.sqrt(sum(a[tok] * a[tok] for tok in shared))
++    norm_b = math.sqrt(sum(b[tok] * b[tok] for tok in shared))
++    diff_norm = math.sqrt(sum(x * x for x in diffs))
++    dot = sum(a[tok] * b[tok] for tok in shared)
++    cosine = dot / max(norm_a * norm_b, 1e-30) if shared else None
++    top1 = rows_a[0] if rows_a else None
++    top2 = rows_a[1] if len(rows_a) > 1 else None
++    top1_b = rows_b[0] if rows_b else None
++    top2_b = rows_b[1] if len(rows_b) > 1 else None
++    return {
++        "shared_count": len(shared),
++        "tp1_only_count": len(set(a) - set(b)),
++        "tp2_only_count": len(set(b) - set(a)),
++        "max_abs_shared": max(abs_diffs) if abs_diffs else None,
++        "mean_abs_shared": (sum(abs_diffs) / len(abs_diffs)) if abs_diffs else None,
++        "rel_l2_shared": diff_norm / max(norm_a, 1e-30) if shared else None,
++        "cosine_shared": cosine,
++        "tp1_top1_token_id": None if top1 is None else int(top1["token_id"]),
++        "tp1_top2_token_id": None if top2 is None else int(top2["token_id"]),
++        "tp1_top1_score": None if top1 is None else float(top1["score"]),
++        "tp1_top2_score": None if top2 is None else float(top2["score"]),
++        "tp1_top1_top2_margin": None
++        if top1 is None or top2 is None
++        else float(top1["score"]) - float(top2["score"]),
++        "tp2_top1_token_id": None if top1_b is None else int(top1_b["token_id"]),
++        "tp2_top2_token_id": None if top2_b is None else int(top2_b["token_id"]),
++        "tp2_top1_score": None if top1_b is None else float(top1_b["score"]),
++        "tp2_top2_score": None if top2_b is None else float(top2_b["score"]),
++        "tp2_top1_top2_margin": None
++        if top1_b is None or top2_b is None
++        else float(top1_b["score"]) - float(top2_b["score"]),
++        "top1_equal": (
++            top1 is not None
++            and top1_b is not None
++            and int(top1["token_id"]) == int(top1_b["token_id"])
++        ),
++        "top5_overlap": len(set(_top_tokens(rows_a, 5)) & set(_top_tokens(rows_b, 5))),
++        "top10_overlap": len(set(_top_tokens(rows_a, 10)) & set(_top_tokens(rows_b, 10))),
++    }
++
++
++def _first_diff(ids_a: list[int], ids_b: list[int]) -> int | None:
++    for idx, (a, b) in enumerate(zip(ids_a, ids_b)):
++        if int(a) != int(b):
++            return idx
++    if len(ids_a) != len(ids_b):
++        return min(len(ids_a), len(ids_b))
++    return None
++
++
++def _compare(tp1: dict[str, Any], tp2: dict[str, Any]) -> dict[str, Any]:
++    rows = []
++    for gen1, gen2 in zip(tp1["generations"], tp2["generations"]):
++        ids1 = [int(x) for x in gen1["token_ids"]]
++        ids2 = [int(x) for x in gen2["token_ids"]]
++        diff = _first_diff(ids1, ids2)
++        prefill = _score_metrics(gen1["scores"][0], gen2["scores"][0])
++        divergence = None
++        if diff is not None and diff < len(gen1["scores"]) and diff < len(gen2["scores"]):
++            divergence = _score_metrics(gen1["scores"][diff], gen2["scores"][diff])
++        rows.append(
++            {
++                "prompt": gen1["prompt"],
++                "tp1_text": gen1["text"],
++                "tp2_text": gen2["text"],
++                "tp1_token_ids": ids1,
++                "tp2_token_ids": ids2,
++                "first_divergence_step": diff,
++                "prefill_next_token": prefill,
++                "first_divergence": divergence,
++            }
++        )
++    all_prefill_top1 = all(r["prefill_next_token"]["top1_equal"] for r in rows)
++    any_divergence = any(r["first_divergence_step"] is not None for r in rows)
++    return {
++        "diagnostic_kind": "topN raw_logits/logprobs parity, not full-vocab logits",
++        "score_mode": tp1["logprobs_mode"],
++        "top_logprobs": tp1["top_logprobs"],
++        "tp1_passed": tp1["passed"],
++        "tp2_passed": tp2["passed"],
++        "all_prefill_top1_equal": all_prefill_top1,
++        "any_greedy_divergence": any_divergence,
++        "prompts": rows,
++    }
++
++
++def _run_driver(args: argparse.Namespace) -> int:
++    out_dir = args.out_dir
++    out_dir.mkdir(parents=True, exist_ok=True)
++    tp1_json = out_dir / "tp1.json"
++    tp2_json = out_dir / "tp2.json"
++    script = Path(__file__).resolve()
++    common = [
++        sys.executable,
++        str(script),
++        "--single-tp",
++        "{tp}",
++        "--checkpoint",
++        str(args.checkpoint),
++        "--max-model-len",
++        str(args.max_model_len),
++        "--max-new-tokens",
++        str(args.max_new_tokens),
++        "--gpu-memory-utilization",
++        str(args.gpu_memory_utilization),
++        "--top-logprobs",
++        str(args.top_logprobs),
++        "--logprobs-mode",
++        str(args.logprobs_mode),
++        "--out-json",
++        "{out}",
++    ]
++    for tp, gpus, out in ((1, args.tp1_gpus, tp1_json), (2, args.tp2_gpus, tp2_json)):
++        cmd = [str(tp) if x == "{tp}" else str(out) if x == "{out}" else x for x in common]
++        env = os.environ.copy()
++        env["CUDA_VISIBLE_DEVICES"] = gpus
++        print("running", " ".join(cmd), "CUDA_VISIBLE_DEVICES=" + gpus, flush=True)
++        subprocess.run(cmd, cwd=str(REPO_ROOT), env=env, check=True)
++    tp1 = json.loads(tp1_json.read_text(encoding="utf-8"))
++    tp2 = json.loads(tp2_json.read_text(encoding="utf-8"))
++    summary = _compare(tp1, tp2)
++    args.summary_json.write_text(
++        json.dumps(summary, indent=2, ensure_ascii=False) + "\n",
++        encoding="utf-8",
++    )
++    print(json.dumps(summary, indent=2, ensure_ascii=False), flush=True)
++    return 0 if summary["tp1_passed"] and summary["tp2_passed"] else 1
++
++
++def parse_args() -> argparse.Namespace:
++    parser = argparse.ArgumentParser()
++    parser.add_argument("--checkpoint", type=Path, default=DEFAULT_CKPT)
++    parser.add_argument("--tp1-gpus", type=str, default="0")
++    parser.add_argument("--tp2-gpus", type=str, default="0,7")
++    parser.add_argument("--max-model-len", type=int, default=512)
++    parser.add_argument("--max-new-tokens", type=int, default=8)
++    parser.add_argument("--gpu-memory-utilization", type=float, default=0.90)
++    parser.add_argument("--top-logprobs", type=int, default=100)
++    parser.add_argument("--logprobs-mode", type=str, default="raw_logits")
++    parser.add_argument("--out-dir", type=Path, default=Path("/tmp/hif4_task13_tp_parity"))
++    parser.add_argument(
++        "--summary-json",
++        type=Path,
++        default=Path("/tmp/hif4_task13_tp_parity/summary.json"),
++    )
++    parser.add_argument("--single-tp", type=int, default=0)
++    parser.add_argument("--out-json", type=Path, default=Path(""))
++    return parser.parse_args()
++
++
++def main() -> int:
++    args = parse_args()
++    if args.single_tp:
++        if not str(args.out_json):
++            raise ValueError("--out-json is required with --single-tp")
++        return _run_single(args)
++    return _run_driver(args)
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/NVFP4/scripts/run_qwen3_30b_hif4_converted_smoke.py b/NVFP4/scripts/run_qwen3_30b_hif4_converted_smoke.py
+new file mode 100644
+index 0000000..ef6ada1
+--- /dev/null
++++ b/NVFP4/scripts/run_qwen3_30b_hif4_converted_smoke.py
+@@ -0,0 +1,189 @@
++#!/usr/bin/env python3
++"""Task 13 I helper: short vLLM TP2 smoke for HiF4 materialized checkpoints."""
++
++from __future__ import annotations
++
++import argparse
++import gc
++import json
++import os
++import sys
++import traceback
++from pathlib import Path
++from typing import Any
++
++REPO_ROOT = Path(__file__).resolve().parents[2]
++if str(REPO_ROOT) not in sys.path:
++    sys.path.insert(0, str(REPO_ROOT))
++VLLM_ROOT = REPO_ROOT / "3rdparty" / "vllm"
++if str(VLLM_ROOT) not in sys.path:
++    sys.path.insert(0, str(VLLM_ROOT))
++
++PROMPTS = [
++    "Hello",
++    "1+1=",
++    "The capital of France is",
++    "Write one word: ok",
++]
++
++
++def _read_trace(path: Path) -> list[dict[str, Any]]:
++    if not path.is_file():
++        return []
++    rows = []
++    for line in path.read_text().splitlines():
++        if line.strip():
++            rows.append(json.loads(line))
++    return rows
++
++
++def main() -> int:
++    p = argparse.ArgumentParser()
++    p.add_argument("--checkpoint", type=Path, required=True)
++    p.add_argument("--hif4-runtime-spec", type=Path, required=True)
++    p.add_argument("--tp", type=int, default=2)
++    p.add_argument("--kv-cache-dtype", type=str, default="bfloat16")
++    p.add_argument("--enforce-eager", action="store_true")
++    p.add_argument("--max-model-len", type=int, default=512)
++    p.add_argument("--max-num-batched-tokens", type=int, default=512)
++    p.add_argument("--max-new-tokens", type=int, default=16)
++    p.add_argument("--gpu-memory-utilization", type=float, default=0.90)
++    p.add_argument("--tag", type=str, required=True)
++    p.add_argument("--out-json", type=Path, required=True)
++    args = p.parse_args()
++
++    trace_path = args.out_json.with_suffix(".trace.jsonl")
++    if trace_path.exists():
++        trace_path.unlink()
++    os.environ["HIF4_RUNTIME_TRACE_JSONL"] = str(trace_path)
++    os.environ["HIF4_RUNTIME_SPEC_PATH"] = str(args.hif4_runtime_spec.resolve())
++
++    result: dict[str, Any] = {
++        "tag": args.tag,
++        "checkpoint": str(args.checkpoint),
++        "hif4_runtime_spec": str(args.hif4_runtime_spec),
++        "tp": int(args.tp),
++        "kv_cache_dtype_arg": args.kv_cache_dtype,
++        "enforce_eager": bool(args.enforce_eager),
++        "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
++        "max_model_len": int(args.max_model_len),
++        "max_num_batched_tokens": int(args.max_num_batched_tokens),
++        "max_new_tokens": int(args.max_new_tokens),
++        "trace_jsonl": str(trace_path),
++        "passed": False,
++        "error": None,
++        "oom": False,
++    }
++    llm = None
++    try:
++        if not args.checkpoint.is_dir():
++            raise FileNotFoundError(f"checkpoint directory not found: {args.checkpoint}")
++        if not args.hif4_runtime_spec.is_file():
++            raise FileNotFoundError(f"HiF4 runtime sidecar not found: {args.hif4_runtime_spec}")
++
++        from vllm import LLM, SamplingParams
++        import torch
++
++        llm = LLM(
++            model=str(args.checkpoint),
++            trust_remote_code=True,
++            tensor_parallel_size=int(args.tp),
++            dtype="auto",
++            enforce_eager=bool(args.enforce_eager),
++            max_model_len=int(args.max_model_len),
++            max_num_batched_tokens=int(args.max_num_batched_tokens),
++            gpu_memory_utilization=float(args.gpu_memory_utilization),
++            kv_cache_dtype=str(args.kv_cache_dtype),
++            enable_prefix_caching=False,
++            async_scheduling=False,
++            additional_config={
++                "hif4_runtime_spec_path": str(args.hif4_runtime_spec.resolve()),
++            },
++        )
++        result["gpu_name"] = (
++            torch.cuda.get_device_name(0) if torch.cuda.is_available() else None
++        )
++        result["gpu_count_visible"] = torch.cuda.device_count()
++        vcfg = llm.llm_engine.vllm_config
++        result["resolved_kv_cache_dtype"] = str(
++            getattr(vcfg.cache_config, "cache_dtype", None)
++        )
++        result["resolved_async_scheduling"] = bool(
++            getattr(vcfg.scheduler_config, "async_scheduling", True)
++        )
++        additional = getattr(vcfg, "additional_config", {}) or {}
++        result["resolved_hif4_runtime_spec_path"] = additional.get(
++            "hif4_runtime_spec_path"
++        )
++
++        sp = SamplingParams(
++            temperature=0.0,
++            top_p=1.0,
++            max_tokens=int(args.max_new_tokens),
++        )
++        outputs = llm.generate(PROMPTS, sp)
++        result["generations"] = [
++            {"prompt": out.prompt, "text": out.outputs[0].text if out.outputs else ""}
++            for out in outputs
++        ]
++        if torch.cuda.is_available():
++            torch.cuda.synchronize()
++            result["cuda_peak_allocated_bytes"] = int(torch.cuda.max_memory_allocated(0))
++            result["cuda_peak_reserved_bytes"] = int(torch.cuda.max_memory_reserved(0))
++
++        trace_rows = _read_trace(trace_path)
++        trace_events = sorted({str(row.get("event")) for row in trace_rows})
++        result["trace_event_counts"] = {
++            event: sum(1 for row in trace_rows if row.get("event") == event)
++            for event in trace_events
++        }
++        result["trace_samples"] = trace_rows[:12]
++        result["sidecar_effective"] = (
++            result["resolved_hif4_runtime_spec_path"]
++            == str(args.hif4_runtime_spec.resolve())
++            and "sidecar_load" in trace_events
++            and "dense_apply" in trace_events
++            and "moe_apply" in trace_events
++        )
++        result["passed"] = bool(
++            len(result["generations"]) == len(PROMPTS)
++            and result["resolved_kv_cache_dtype"] == "bfloat16"
++            and result["resolved_async_scheduling"] is False
++            and result["sidecar_effective"]
++        )
++        print(
++            json.dumps(
++                {
++                    k: result[k]
++                    for k in (
++                        "tag",
++                        "passed",
++                        "resolved_kv_cache_dtype",
++                        "resolved_async_scheduling",
++                        "sidecar_effective",
++                        "trace_event_counts",
++                        "gpu_name",
++                        "cuda_peak_allocated_bytes",
++                        "cuda_peak_reserved_bytes",
++                    )
++                    if k in result
++                },
++                indent=2,
++            )
++        )
++    except BaseException as exc:  # noqa: BLE001 - smoke must serialize failures
++        result["error"] = "".join(traceback.format_exception(exc))
++        result["oom"] = "out of memory" in str(exc).lower()
++        print(result["error"], file=sys.stderr)
++    finally:
++        result["trace_event_counts"] = result.get("trace_event_counts", {})
++        args.out_json.parent.mkdir(parents=True, exist_ok=True)
++        args.out_json.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
++        if llm is not None:
++            del llm
++        gc.collect()
++    return 0 if result["passed"] else 1
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/Native_NVFP4_HiF4_Linear_Puncture/experiments/e2e_diag_reconstruction/core/moe_fold.py b/Native_NVFP4_HiF4_Linear_Puncture/experiments/e2e_diag_reconstruction/core/moe_fold.py
+new file mode 100644
+index 0000000..29a98f9
+--- /dev/null
++++ b/Native_NVFP4_HiF4_Linear_Puncture/experiments/e2e_diag_reconstruction/core/moe_fold.py
+@@ -0,0 +1,98 @@
++"""Fusable Qwen3-MoE DIAG fold with strict BF16 router compensation."""
++
++from __future__ import annotations
++
++from dataclasses import replace
++
++import torch
++
++from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.modelopt_moe_checkpoint import (
++    MoEExpertMasterState,
++    MoELayerMasterState,
++)
++from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.moe_semantic_hif4 import (
++    MoEFusableDiagState,
++)
++from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.moe_transforms import (
++    fusable_weight_transform_no_h,
++    transform_router_weight,
++)
++
++
++def fold_fusable_moe_layer_state(
++    state: MoELayerMasterState,
++    diag_state: MoEFusableDiagState,
++    *,
++    use_r64: bool,
++) -> MoELayerMasterState:
++    """Return a folded current-layer master state without mutating input state."""
++    ones_hidden = torch.ones(state.spec.hidden_size, dtype=torch.float32, device=diag_state.z_qkv.device)
++    ones_q = torch.ones(state.spec.num_attention_heads * state.spec.head_dim, dtype=torch.float32, device=diag_state.z_qkv.device)
++    ones_kv = torch.ones(state.spec.num_key_value_heads * state.spec.head_dim, dtype=torch.float32, device=diag_state.z_qkv.device)
++
++    attention = {
++        "q_proj": fusable_weight_transform_no_h(
++            state.attention["q_proj"], diag_state.d_qkv(), ones_q, use_r64=use_r64
++        ).detach(),
++        "k_proj": fusable_weight_transform_no_h(
++            state.attention["k_proj"], diag_state.d_qkv(), ones_kv, use_r64=use_r64
++        ).detach(),
++        "v_proj": fusable_weight_transform_no_h(
++            state.attention["v_proj"], diag_state.d_qkv(), diag_state.d_vo(), use_r64=use_r64
++        ).detach(),
++        "o_proj": fusable_weight_transform_no_h(
++            state.attention["o_proj"], diag_state.d_vo_expanded(), ones_hidden, use_r64=use_r64, head_dim=state.spec.head_dim
++        ).detach(),
++    }
++    experts: list[MoEExpertMasterState] = []
++    ones_moe = torch.ones(state.spec.moe_intermediate_size, dtype=torch.float32, device=diag_state.z_qkv.device)
++    for expert_idx, expert in enumerate(state.experts):
++        experts.append(
++            MoEExpertMasterState(
++                gate_proj=fusable_weight_transform_no_h(
++                    expert.gate_proj, diag_state.d_gu(), ones_moe, use_r64=use_r64
++                ).detach(),
++                up_proj=fusable_weight_transform_no_h(
++                    expert.up_proj, diag_state.d_gu(), diag_state.d_ud(expert_idx), use_r64=use_r64
++                ).detach(),
++                down_proj=fusable_weight_transform_no_h(
++                    expert.down_proj, diag_state.d_ud(expert_idx), ones_hidden, use_r64=use_r64
++                ).detach(),
++                gate_metadata=expert.gate_metadata,
++                up_metadata=expert.up_metadata,
++                down_metadata=expert.down_metadata,
++            )
++        )
++
++    return replace(
++        state,
++        input_layernorm_weight=(state.input_layernorm_weight.to(torch.float32) * diag_state.d_qkv()).to(state.input_layernorm_weight.dtype).detach(),
++        post_attention_layernorm_weight=(state.post_attention_layernorm_weight.to(torch.float32) * diag_state.d_gu()).to(state.post_attention_layernorm_weight.dtype).detach(),
++        router_weight=transform_router_weight(state.router_weight, diag_state.d_gu()).to(state.router_weight.dtype).detach(),
++        attention=attention,
++        experts=experts,
++    )
++
++
++def router_compensation_topk_gate(
++    hidden_states: torch.Tensor,
++    router_weight: torch.Tensor,
++    diag_state: MoEFusableDiagState,
++    *,
++    top_k: int,
++) -> dict[str, float | int]:
++    """Check folded BF16 router preserves the native BF16 router top-k IDs."""
++    d = diag_state.d_gu().to(device=hidden_states.device)
++    original = hidden_states.to(torch.bfloat16) @ router_weight.to(device=hidden_states.device, dtype=torch.bfloat16).T
++    folded_weight = transform_router_weight(router_weight, d).to(device=hidden_states.device, dtype=torch.bfloat16)
++    folded = (hidden_states.to(torch.bfloat16) * d.to(dtype=torch.bfloat16)) @ folded_weight.T
++    original_ids = torch.topk(torch.softmax(original.float(), dim=-1), top_k, dim=-1).indices
++    folded_ids = torch.topk(torch.softmax(folded.float(), dim=-1), top_k, dim=-1).indices
++    diff = (original.float() - folded.float()).reshape(-1)
++    rel_l2 = torch.linalg.vector_norm(diff) / torch.linalg.vector_norm(original.float().reshape(-1)).clamp_min(1e-12)
++    mismatches = int((original_ids != folded_ids).sum().item())
++    return {
++        "topk_mismatches": mismatches,
++        "max_abs": float(diff.abs().max().item()),
++        "rel_l2": float(rel_l2.item()),
++    }
+diff --git a/Native_NVFP4_HiF4_Linear_Puncture/experiments/e2e_diag_reconstruction/core/moe_semantic_hif4.py b/Native_NVFP4_HiF4_Linear_Puncture/experiments/e2e_diag_reconstruction/core/moe_semantic_hif4.py
+new file mode 100644
+index 0000000..d8a15c5
+--- /dev/null
++++ b/Native_NVFP4_HiF4_Linear_Puncture/experiments/e2e_diag_reconstruction/core/moe_semantic_hif4.py
+@@ -0,0 +1,630 @@
++"""Qwen3-MoE layer semantic runtime for native NVFP4 and HiF4 reconstruction.
++
++This module intentionally has no H16 path.  Routing and RoPE use the installed
++Transformers Qwen3-MoE implementations; only the replaceable quantized linear
++operations are supplied by the experiment runtime.
++"""
++
++from __future__ import annotations
++
++import json
++import math
++from dataclasses import dataclass
++from pathlib import Path
++from types import SimpleNamespace
++
++import torch
++import torch.nn as nn
++import torch.nn.functional as F
++from transformers.models.qwen3_moe.configuration_qwen3_moe import Qwen3MoeConfig
++from transformers.models.qwen3_moe.modeling_qwen3_moe import (
++    Qwen3MoeTopKRouter,
++    apply_rotary_pos_emb,
++    eager_attention_forward,
++)
++
++from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.modelopt_moe_checkpoint import (
++    MoELayerMasterState,
++)
++from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.moe_transforms import (
++    apply_r64_no_cross_head,
++    expand_vo_scale_qwen3_moe,
++    fusable_weight_transform_no_h,
++    online_weight_transform_no_h,
++    transform_router_weight,
++)
++from Native_NVFP4_HiF4_Linear_Puncture.src.formats import qdq_hif4_direct
++
++
++def qdq_native_nvfp4(x: torch.Tensor, input_global_scale_inv: torch.Tensor) -> torch.Tensor:
++    """Native ModelOpt activation QDQ using the vLLM emulation definition."""
++    from vllm.model_executor.layers.quantization.utils.nvfp4_emulation_utils import (
++        ref_nvfp4_quant_dequant,
++    )
++
++    original_shape = x.shape
++    x2d = x.reshape(-1, original_shape[-1])
++    qdq = ref_nvfp4_quant_dequant(
++        x2d, input_global_scale_inv.to(device=x.device, dtype=torch.float32), block_size=16
++    )
++    return qdq.reshape(original_shape)
++
++
++def _rms_norm(x: torch.Tensor, weight: torch.Tensor, eps: float) -> torch.Tensor:
++    dtype = x.dtype
++    xf = x.to(torch.float32)
++    normed = xf * torch.rsqrt(xf.square().mean(dim=-1, keepdim=True) + eps)
++    return normed.to(dtype) * weight.to(device=x.device, dtype=dtype)
++
++
++def native_nvfp4_linear(x: torch.Tensor, weight_fp32: torch.Tensor, input_global_scale_inv: torch.Tensor) -> torch.Tensor:
++    x_qdq = qdq_native_nvfp4(x, input_global_scale_inv)
++    return F.linear(x_qdq, weight_fp32.to(device=x.device, dtype=x_qdq.dtype))
++
++
++def qdq_hif4_ste_bf16(x: torch.Tensor) -> torch.Tensor:
++    xf = x.to(torch.float32)
++    with torch.no_grad():
++        recon = qdq_hif4_direct(xf.detach(), output_dtype=torch.bfloat16).to(torch.float32)
++    y = xf + (recon - xf).detach()
++    return y.to(torch.bfloat16)
++
++
++def _scale_from_z(z: torch.Tensor) -> torch.Tensor:
++    return torch.exp2(z.to(torch.float32))
++
++
++class MoEFusableDiagState(nn.Module):
++    def __init__(
++        self,
++        *,
++        hidden_size: int = 2048,
++        num_experts: int = 128,
++        moe_intermediate_size: int = 768,
++        num_key_value_heads: int = 4,
++        head_dim: int = 128,
++    ) -> None:
++        super().__init__()
++        self.diag_mode = "fusable"
++        self.hidden_size = int(hidden_size)
++        self.num_experts = int(num_experts)
++        self.moe_intermediate_size = int(moe_intermediate_size)
++        self.num_key_value_heads = int(num_key_value_heads)
++        self.head_dim = int(head_dim)
++        self.z_qkv = nn.Parameter(torch.zeros(hidden_size, dtype=torch.float32))
++        self.z_vo = nn.Parameter(torch.zeros(num_key_value_heads * head_dim, dtype=torch.float32))
++        self.z_gu = nn.Parameter(torch.zeros(hidden_size, dtype=torch.float32))
++        self.z_ud = nn.Parameter(torch.zeros(num_experts, moe_intermediate_size, dtype=torch.float32))
++
++    def d_qkv(self) -> torch.Tensor:
++        return _scale_from_z(self.z_qkv)
++
++    def d_vo(self) -> torch.Tensor:
++        return _scale_from_z(self.z_vo)
++
++    def d_vo_expanded(self) -> torch.Tensor:
++        return expand_vo_scale_qwen3_moe(self.d_vo())
++
++    def d_gu(self) -> torch.Tensor:
++        return _scale_from_z(self.z_gu)
++
++    def d_ud(self, expert_idx: int) -> torch.Tensor:
++        return _scale_from_z(self.z_ud[int(expert_idx)])
++
++    def snapshot(self) -> dict[str, torch.Tensor]:
++        return {name: p.detach().cpu().clone() for name, p in self.named_parameters()}
++
++    def load_snapshot(self, snapshot: dict[str, torch.Tensor]) -> None:
++        params = dict(self.named_parameters())
++        if set(snapshot) != set(params):
++            raise ValueError(f"snapshot keys {sorted(snapshot)} != {sorted(params)}")
++        with torch.no_grad():
++            for name, value in snapshot.items():
++                params[name].copy_(value.to(device=params[name].device, dtype=torch.float32))
++
++    def clamp_log2_(self, bounds: tuple[float, float] = (-4.0, 4.0)) -> None:
++        lo, hi = bounds
++        with torch.no_grad():
++            for p in self.parameters():
++                p.clamp_(lo, hi)
++
++
++class MoEOnlineDiagState(nn.Module):
++    def __init__(
++        self,
++        *,
++        hidden_size: int = 2048,
++        num_experts: int = 128,
++        moe_intermediate_size: int = 768,
++        o_input_size: int = 4096,
++    ) -> None:
++        super().__init__()
++        self.diag_mode = "online"
++        self.hidden_size = int(hidden_size)
++        self.num_experts = int(num_experts)
++        self.moe_intermediate_size = int(moe_intermediate_size)
++        self.o_input_size = int(o_input_size)
++        self.z_q = nn.Parameter(torch.zeros(hidden_size, dtype=torch.float32))
++        self.z_k = nn.Parameter(torch.zeros(hidden_size, dtype=torch.float32))
++        self.z_v = nn.Parameter(torch.zeros(hidden_size, dtype=torch.float32))
++        self.z_o = nn.Parameter(torch.zeros(o_input_size, dtype=torch.float32))
++        self.z_gate = nn.Parameter(torch.zeros(num_experts, hidden_size, dtype=torch.float32))
++        self.z_up = nn.Parameter(torch.zeros(num_experts, hidden_size, dtype=torch.float32))
++        self.z_down = nn.Parameter(torch.zeros(num_experts, moe_intermediate_size, dtype=torch.float32))
++
++    def d_for(self, proj: str, expert_idx: int | None = None) -> torch.Tensor:
++        if proj in {"q_proj", "k_proj", "v_proj", "o_proj"}:
++            return _scale_from_z(getattr(self, {"q_proj": "z_q", "k_proj": "z_k", "v_proj": "z_v", "o_proj": "z_o"}[proj]))
++        if expert_idx is None:
++            raise ValueError(f"{proj} requires expert_idx")
++        name = {"gate_proj": "z_gate", "up_proj": "z_up", "down_proj": "z_down"}[proj]
++        return _scale_from_z(getattr(self, name)[int(expert_idx)])
++
++    def snapshot(self) -> dict[str, torch.Tensor]:
++        return {name: p.detach().cpu().clone() for name, p in self.named_parameters()}
++
++    def load_snapshot(self, snapshot: dict[str, torch.Tensor]) -> None:
++        params = dict(self.named_parameters())
++        if set(snapshot) != set(params):
++            raise ValueError(f"snapshot keys {sorted(snapshot)} != {sorted(params)}")
++        with torch.no_grad():
++            for name, value in snapshot.items():
++                params[name].copy_(value.to(device=params[name].device, dtype=torch.float32))
++
++    def clamp_log2_(self, bounds: tuple[float, float] = (-4.0, 4.0)) -> None:
++        lo, hi = bounds
++        with torch.no_grad():
++            for p in self.parameters():
++                p.clamp_(lo, hi)
++
++
++def build_moe_diag_state(spec, diag_mode: str) -> nn.Module:
++    if diag_mode == "fusable":
++        return MoEFusableDiagState(
++            hidden_size=spec.hidden_size,
++            num_experts=spec.num_experts,
++            moe_intermediate_size=spec.moe_intermediate_size,
++            num_key_value_heads=spec.num_key_value_heads,
++            head_dim=spec.head_dim,
++        )
++    if diag_mode == "online":
++        return MoEOnlineDiagState(
++            hidden_size=spec.hidden_size,
++            num_experts=spec.num_experts,
++            moe_intermediate_size=spec.moe_intermediate_size,
++            o_input_size=spec.num_attention_heads * spec.head_dim,
++        )
++    raise ValueError(f"invalid diag_mode={diag_mode!r}")
++
++
++@dataclass
++class StudentStepCache:
++    transformed_weight_qdq: dict[tuple[str, int | None], torch.Tensor]
++    weight_qdq_calls_by_proj: dict[str, int]
++
++    @classmethod
++    def new(cls) -> "StudentStepCache":
++        return cls(transformed_weight_qdq={}, weight_qdq_calls_by_proj={})
++
++    def clear(self) -> None:
++        self.transformed_weight_qdq.clear()
++
++    def cached_weight(self, key: tuple[str, int | None], build) -> torch.Tensor:
++        if key not in self.transformed_weight_qdq:
++            self.transformed_weight_qdq[key] = build()
++            proj = key[0]
++            self.weight_qdq_calls_by_proj[proj] = self.weight_qdq_calls_by_proj.get(proj, 0) + 1
++        return self.transformed_weight_qdq[key]
++
++
++def _student_activation(
++    x: torch.Tensor,
++    d: torch.Tensor,
++    *,
++    use_r64: bool,
++    rot_order: str,
++    head_dim: int | None,
++) -> torch.Tensor:
++    xf = x.to(torch.float32)
++    if rot_order == "diag_then_rot":
++        y = xf * d.to(device=xf.device)
++        return apply_r64_no_cross_head(y, head_dim=head_dim) if use_r64 else y
++    if rot_order == "rot_then_diag":
++        y = apply_r64_no_cross_head(xf, head_dim=head_dim) if use_r64 else xf
++        return y * d.to(device=xf.device)
++    raise ValueError(f"invalid rot_order={rot_order!r}")
++
++
++def _attention_d_in_out(proj: str, diag_state: nn.Module, out_features: int) -> tuple[torch.Tensor, torch.Tensor]:
++    if isinstance(diag_state, MoEFusableDiagState):
++        if proj in {"q_proj", "k_proj"}:
++            return diag_state.d_qkv(), torch.ones(out_features, dtype=torch.float32, device=diag_state.z_qkv.device)
++        if proj == "v_proj":
++            return diag_state.d_qkv(), diag_state.d_vo()
++        if proj == "o_proj":
++            return diag_state.d_vo_expanded(), torch.ones(out_features, dtype=torch.float32, device=diag_state.z_qkv.device)
++    raise ValueError(f"invalid fusable attention proj={proj!r}")
++
++
++def forward_student_attention_proj(
++    proj: str,
++    x: torch.Tensor,
++    master_weight: torch.Tensor,
++    diag_state: nn.Module,
++    *,
++    use_r64: bool,
++    rot_order: str,
++    step_cache: StudentStepCache,
++    use_ste: bool = True,
++    head_dim: int | None = None,
++) -> torch.Tensor:
++    if isinstance(diag_state, MoEFusableDiagState):
++        d_in, d_out = _attention_d_in_out(proj, diag_state, int(master_weight.shape[0]))
++        act_d = torch.ones_like(d_in) if proj == "o_proj" else d_in
++        x_t = _student_activation(x, act_d, use_r64=use_r64, rot_order="diag_then_rot", head_dim=head_dim)
++        w_t = fusable_weight_transform_no_h(master_weight, d_in, d_out, use_r64=use_r64, head_dim=head_dim)
++    elif isinstance(diag_state, MoEOnlineDiagState):
++        d = diag_state.d_for(proj)
++        x_t = _student_activation(x, d, use_r64=use_r64, rot_order=rot_order, head_dim=head_dim)
++        w_t = online_weight_transform_no_h(master_weight, d, use_r64=use_r64, rot_order=rot_order, head_dim=head_dim)
++    else:
++        raise TypeError(f"unsupported diag_state={type(diag_state)!r}")
++    a_h = qdq_hif4_ste_bf16(x_t) if use_ste else qdq_hif4_direct(x_t, output_dtype=torch.bfloat16)
++    w_h = step_cache.cached_weight((proj, None), lambda: qdq_hif4_ste_bf16(w_t) if use_ste else qdq_hif4_direct(w_t, output_dtype=torch.bfloat16))
++    return F.linear(a_h.to(dtype=w_h.dtype), w_h)
++
++
++def _expert_d_in_out(
++    proj: str,
++    expert_idx: int,
++    diag_state: MoEFusableDiagState,
++    out_features: int,
++) -> tuple[torch.Tensor, torch.Tensor]:
++    ones = torch.ones(out_features, dtype=torch.float32, device=diag_state.z_qkv.device)
++    if proj == "gate_proj":
++        return diag_state.d_gu(), ones
++    if proj == "up_proj":
++        return diag_state.d_gu(), diag_state.d_ud(expert_idx)
++    if proj == "down_proj":
++        return diag_state.d_ud(expert_idx), ones
++    raise ValueError(proj)
++
++
++def forward_student_expert_proj(
++    proj: str,
++    expert_idx: int,
++    x: torch.Tensor,
++    master_weight: torch.Tensor,
++    diag_state: nn.Module,
++    *,
++    use_r64: bool,
++    rot_order: str,
++    step_cache: StudentStepCache,
++    use_ste: bool = True,
++) -> torch.Tensor:
++    if isinstance(diag_state, MoEFusableDiagState):
++        d_in, d_out = _expert_d_in_out(proj, expert_idx, diag_state, int(master_weight.shape[0]))
++        act_d = torch.ones_like(d_in) if proj == "down_proj" else d_in
++        x_t = _student_activation(x, act_d, use_r64=use_r64, rot_order="diag_then_rot", head_dim=None)
++        w_t = fusable_weight_transform_no_h(master_weight, d_in, d_out, use_r64=use_r64)
++    elif isinstance(diag_state, MoEOnlineDiagState):
++        d = diag_state.d_for(proj, expert_idx)
++        x_t = _student_activation(x, d, use_r64=use_r64, rot_order=rot_order, head_dim=None)
++        w_t = online_weight_transform_no_h(master_weight, d, use_r64=use_r64, rot_order=rot_order)
++    else:
++        raise TypeError(f"unsupported diag_state={type(diag_state)!r}")
++    a_h = qdq_hif4_ste_bf16(x_t) if use_ste else qdq_hif4_direct(x_t, output_dtype=torch.bfloat16)
++    w_h = step_cache.cached_weight((proj, int(expert_idx)), lambda: qdq_hif4_ste_bf16(w_t) if use_ste else qdq_hif4_direct(w_t, output_dtype=torch.bfloat16))
++    return F.linear(a_h.to(dtype=w_h.dtype), w_h)
++
++
++@dataclass
++class StudentMoEOutput:
++    output: torch.Tensor
++    router_logits: torch.Tensor
++    routing_weights: torch.Tensor
++    selected_experts: torch.Tensor
++    per_expert_routed_token_count: torch.Tensor
++
++
++def forward_student_routed_moe(
++    x: torch.Tensor,
++    state: MoELayerMasterState,
++    diag_state: nn.Module,
++    *,
++    use_r64: bool,
++    rot_order: str,
++    step_cache: StudentStepCache,
++    use_ste: bool = True,
++) -> StudentMoEOutput:
++    flat = x.reshape(-1, x.shape[-1])
++    router_weight = state.router_weight
++    if isinstance(diag_state, MoEFusableDiagState):
++        router_weight = transform_router_weight(router_weight, diag_state.d_gu()).to(device=flat.device, dtype=router_weight.dtype)
++        router_input = flat * diag_state.d_gu().to(device=flat.device, dtype=flat.dtype)
++    else:
++        router_input = flat
++    router_weight = router_weight.to(device=flat.device)
++    router_logits = F.linear(router_input.to(dtype=router_weight.dtype), router_weight)
++    probs = torch.softmax(router_logits, dtype=torch.float32, dim=-1)
++    routing_weights, selected_experts = torch.topk(probs, state.spec.top_k, dim=-1)
++    if state.spec.norm_topk_prob:
++        routing_weights = routing_weights / routing_weights.sum(dim=-1, keepdim=True)
++    routing_weights = routing_weights.to(router_logits.dtype)
++    output = torch.zeros_like(flat)
++    counts = torch.zeros(state.spec.num_experts, dtype=torch.long, device=flat.device)
++    for expert_idx in selected_experts.unique(sorted=True).tolist():
++        expert = state.experts[int(expert_idx)]
++        token_idx, topk_pos = torch.where(selected_experts == expert_idx)
++        counts[int(expert_idx)] = token_idx.numel()
++        current = flat[token_idx]
++        gate = forward_student_expert_proj(
++            "gate_proj", int(expert_idx), current, expert.gate_proj, diag_state,
++            use_r64=use_r64, rot_order=rot_order, step_cache=step_cache, use_ste=use_ste,
++        )
++        up = forward_student_expert_proj(
++            "up_proj", int(expert_idx), current, expert.up_proj, diag_state,
++            use_r64=use_r64, rot_order=rot_order, step_cache=step_cache, use_ste=use_ste,
++        )
++        hidden = F.silu(gate) * up
++        down = forward_student_expert_proj(
++            "down_proj", int(expert_idx), hidden, expert.down_proj, diag_state,
++            use_r64=use_r64, rot_order=rot_order, step_cache=step_cache, use_ste=use_ste,
++        )
++        output.index_add_(0, token_idx, down.to(output.dtype) * routing_weights[token_idx, topk_pos, None])
++    return StudentMoEOutput(output.reshape_as(x), router_logits, routing_weights, selected_experts, counts)
++
++
++@dataclass
++class NativeMoEForward:
++    output: torch.Tensor
++    router_logits: torch.Tensor
++    routing_weights: torch.Tensor
++    selected_experts: torch.Tensor
++
++
++@dataclass
++class NativeAttentionProjections:
++    q: torch.Tensor
++    k: torch.Tensor
++    v: torch.Tensor
++    o_input: torch.Tensor
++    o: torch.Tensor
++
++
++class NativeQwen3MoELayerRuntime(nn.Module):
++    """One lazy-materialized native layer with vLLM-aligned NVFP4 QDQ/GEMM."""
++
++    def __init__(self, state: MoELayerMasterState, *, rms_norm_eps: float = 1e-6) -> None:
++        super().__init__()
++        self.state = state
++        self.rms_norm_eps = float(rms_norm_eps)
++        config = Qwen3MoeConfig(
++            hidden_size=state.spec.hidden_size,
++            num_hidden_layers=state.spec.num_layers,
++            num_attention_heads=state.spec.num_attention_heads,
++            num_key_value_heads=state.spec.num_key_value_heads,
++            head_dim=state.spec.head_dim,
++            num_experts=state.spec.num_experts,
++            num_experts_per_tok=state.spec.top_k,
++            moe_intermediate_size=state.spec.moe_intermediate_size,
++            norm_topk_prob=state.spec.norm_topk_prob,
++        )
++        self.router = Qwen3MoeTopKRouter(config)
++        self.router.weight = nn.Parameter(state.router_weight, requires_grad=False)
++        self._attention_view = SimpleNamespace(
++            num_key_value_groups=state.spec.num_attention_heads // state.spec.num_key_value_heads,
++            training=False,
++        )
++
++    def attention_projections(
++        self,
++        x: torch.Tensor,
++        attention_mask: torch.Tensor | None,
++        position_embeddings: tuple[torch.Tensor, torch.Tensor],
++    ) -> NativeAttentionProjections:
++        state = self.state
++        shape = (*x.shape[:-1], -1, state.spec.head_dim)
++        q = native_nvfp4_linear(x, state.attention["q_proj"], state.attention_metadata["q_proj"].input_global_scale_inv)
++        k = native_nvfp4_linear(x, state.attention["k_proj"], state.attention_metadata["k_proj"].input_global_scale_inv)
++        v = native_nvfp4_linear(x, state.attention["v_proj"], state.attention_metadata["v_proj"].input_global_scale_inv)
++        q_attn = _rms_norm(q.view(shape), state.q_norm_weight, self.rms_norm_eps).transpose(1, 2)
++        k_attn = _rms_norm(k.view(shape), state.k_norm_weight, self.rms_norm_eps).transpose(1, 2)
++        v_attn = v.view(shape).transpose(1, 2)
++        cos, sin = position_embeddings
++        q_attn, k_attn = apply_rotary_pos_emb(q_attn, k_attn, cos, sin)
++        out, _ = eager_attention_forward(
++            self._attention_view,
++            q_attn,
++            k_attn,
++            v_attn,
++            attention_mask,
++            scaling=1.0 / math.sqrt(state.spec.head_dim),
++            dropout=0.0,
++        )
++        o_input = out.reshape(*x.shape[:-1], -1).contiguous()
++        o = native_nvfp4_linear(o_input, state.attention["o_proj"], state.attention_metadata["o_proj"].input_global_scale_inv)
++        return NativeAttentionProjections(q=q, k=k, v=v, o_input=o_input, o=o)
++
++    def routed_moe(self, x: torch.Tensor) -> NativeMoEForward:
++        state = self.state
++        flat = x.reshape(-1, x.shape[-1])
++        router_logits, routing_weights, selected_experts = self.router(flat)
++        output = torch.zeros_like(flat)
++        # This mirrors Transformers Qwen3MoeExperts.forward, but only
++        # materializes/QDQs experts that were actually routed in this batch.
++        for expert_idx in selected_experts.unique(sorted=True).tolist():
++            expert = state.experts[int(expert_idx)]
++            token_idx, topk_pos = torch.where(selected_experts == expert_idx)
++            current = flat[token_idx]
++            gate = native_nvfp4_linear(current, expert.gate_proj, expert.gate_metadata.input_global_scale_inv)
++            up = native_nvfp4_linear(current, expert.up_proj, expert.up_metadata.input_global_scale_inv)
++            hidden = F.silu(gate) * up
++            down = native_nvfp4_linear(hidden, expert.down_proj, expert.down_metadata.input_global_scale_inv)
++            down = down * routing_weights[token_idx, topk_pos, None]
++            output.index_add_(0, token_idx, down.to(output.dtype))
++        return NativeMoEForward(output.reshape_as(x), router_logits, routing_weights, selected_experts)
++
++    def forward(
++        self,
++        hidden_states: torch.Tensor,
++        *,
++        attention_mask: torch.Tensor | None,
++        position_embeddings: tuple[torch.Tensor, torch.Tensor],
++    ) -> NativeMoEForward:
++        residual = hidden_states
++        normed = _rms_norm(hidden_states, self.state.input_layernorm_weight, self.rms_norm_eps)
++        hidden_states = residual + self.attention_projections(normed, attention_mask, position_embeddings).o
++        residual = hidden_states
++        normed = _rms_norm(hidden_states, self.state.post_attention_layernorm_weight, self.rms_norm_eps)
++        moe = self.routed_moe(normed)
++        return NativeMoEForward(residual + moe.output, moe.router_logits, moe.routing_weights, moe.selected_experts)
++
++
++def qwen3_moe_config_from_snapshot(snapshot: str | Path) -> Qwen3MoeConfig:
++    config = json.loads((Path(snapshot) / "config.json").read_text(encoding="utf-8"))
++    return Qwen3MoeConfig.from_dict(config)
++
++
++@dataclass
++class ExpertCoverageStats:
++    active_experts_train: set[int]
++    active_experts_val: set[int]
++    per_expert_routed_token_count: torch.Tensor
++    min_routed_tokens: int
++    median_routed_tokens: float
++    max_routed_tokens: int
++    never_routed_experts: list[int]
++    weight_qdq_calls_by_proj: dict[str, int]
++
++
++class StudentQwen3MoELayerRuntime(nn.Module):
++    def __init__(
++        self,
++        state: MoELayerMasterState,
++        diag_state: nn.Module,
++        *,
++        use_r64: bool,
++        rot_order: str,
++        rms_norm_eps: float = 1e-6,
++    ) -> None:
++        super().__init__()
++        self.state = state
++        self.diag_state = diag_state
++        self.use_r64 = bool(use_r64)
++        self.rot_order = rot_order
++        self.rms_norm_eps = float(rms_norm_eps)
++        self._attention_view = SimpleNamespace(
++            num_key_value_groups=state.spec.num_attention_heads // state.spec.num_key_value_heads,
++            training=False,
++        )
++
++    def attention(
++        self,
++        x: torch.Tensor,
++        attention_mask: torch.Tensor | None,
++        position_embeddings: tuple[torch.Tensor, torch.Tensor],
++        step_cache: StudentStepCache,
++        *,
++        use_ste: bool = True,
++    ) -> torch.Tensor:
++        state = self.state
++        shape = (*x.shape[:-1], -1, state.spec.head_dim)
++        q = forward_student_attention_proj(
++            "q_proj", x, state.attention["q_proj"], self.diag_state,
++            use_r64=self.use_r64, rot_order=self.rot_order, step_cache=step_cache, use_ste=use_ste,
++        )
++        k = forward_student_attention_proj(
++            "k_proj", x, state.attention["k_proj"], self.diag_state,
++            use_r64=self.use_r64, rot_order=self.rot_order, step_cache=step_cache, use_ste=use_ste,
++        )
++        v = forward_student_attention_proj(
++            "v_proj", x, state.attention["v_proj"], self.diag_state,
++            use_r64=self.use_r64, rot_order=self.rot_order, step_cache=step_cache, use_ste=use_ste,
++        )
++        q_attn = _rms_norm(q.view(shape), state.q_norm_weight, self.rms_norm_eps).transpose(1, 2)
++        k_attn = _rms_norm(k.view(shape), state.k_norm_weight, self.rms_norm_eps).transpose(1, 2)
++        v_attn = v.view(shape).transpose(1, 2)
++        cos, sin = position_embeddings
++        q_attn, k_attn = apply_rotary_pos_emb(q_attn, k_attn, cos, sin)
++        out, _ = eager_attention_forward(
++            self._attention_view,
++            q_attn,
++            k_attn,
++            v_attn,
++            attention_mask,
++            scaling=1.0 / math.sqrt(state.spec.head_dim),
++            dropout=0.0,
++        )
++        o_input = out.reshape(*x.shape[:-1], -1).contiguous()
++        return forward_student_attention_proj(
++            "o_proj",
++            o_input,
++            state.attention["o_proj"],
++            self.diag_state,
++            use_r64=self.use_r64,
++            rot_order=self.rot_order,
++            step_cache=step_cache,
++            use_ste=use_ste,
++            head_dim=state.spec.head_dim,
++        )
++
++    def forward(
++        self,
++        hidden_states: torch.Tensor,
++        *,
++        attention_mask: torch.Tensor | None,
++        position_embeddings: tuple[torch.Tensor, torch.Tensor],
++        step_cache: StudentStepCache | None = None,
++        use_ste: bool = True,
++    ) -> StudentMoEOutput:
++        cache = step_cache if step_cache is not None else StudentStepCache.new()
++        residual = hidden_states
++        normed = _rms_norm(hidden_states, self.state.input_layernorm_weight, self.rms_norm_eps)
++        hidden_states = residual + self.attention(normed, attention_mask, position_embeddings, cache, use_ste=use_ste)
++        residual = hidden_states
++        normed = _rms_norm(hidden_states, self.state.post_attention_layernorm_weight, self.rms_norm_eps)
++        moe = forward_student_routed_moe(
++            normed,
++            self.state,
++            self.diag_state,
++            use_r64=self.use_r64,
++            rot_order=self.rot_order,
++            step_cache=cache,
++            use_ste=use_ste,
++        )
++        return StudentMoEOutput(
++            residual + moe.output,
++            moe.router_logits,
++            moe.routing_weights,
++            moe.selected_experts,
++            moe.per_expert_routed_token_count,
++        )
++
++
++def summarize_expert_coverage(
++    *,
++    train_counts: torch.Tensor,
++    val_counts: torch.Tensor,
++    step_cache: StudentStepCache,
++) -> ExpertCoverageStats:
++    total = train_counts.to(torch.long).cpu() + val_counts.to(torch.long).cpu()
++    nonzero = total[total > 0]
++    if nonzero.numel() == 0:
++        min_count = 0
++        median = 0.0
++        max_count = 0
++    else:
++        min_count = int(nonzero.min().item())
++        median = float(nonzero.to(torch.float32).median().item())
++        max_count = int(nonzero.max().item())
++    return ExpertCoverageStats(
++        active_experts_train=set(torch.nonzero(train_counts.cpu(), as_tuple=False).flatten().tolist()),
++        active_experts_val=set(torch.nonzero(val_counts.cpu(), as_tuple=False).flatten().tolist()),
++        per_expert_routed_token_count=total,
++        min_routed_tokens=min_count,
++        median_routed_tokens=median,
++        max_routed_tokens=max_count,
++        never_routed_experts=torch.nonzero(total == 0, as_tuple=False).flatten().tolist(),
++        weight_qdq_calls_by_proj=dict(step_cache.weight_qdq_calls_by_proj),
++    )
+diff --git a/Native_NVFP4_HiF4_Linear_Puncture/experiments/e2e_diag_reconstruction/evaluation/moe_materialize.py b/Native_NVFP4_HiF4_Linear_Puncture/experiments/e2e_diag_reconstruction/evaluation/moe_materialize.py
+new file mode 100644
+index 0000000..a726e1c
+--- /dev/null
++++ b/Native_NVFP4_HiF4_Linear_Puncture/experiments/e2e_diag_reconstruction/evaluation/moe_materialize.py
+@@ -0,0 +1,222 @@
++"""Streaming materializer for Qwen3-MoE HiF4 evaluation checkpoints."""
++
++from __future__ import annotations
++
++import json
++import shutil
++from pathlib import Path
++from typing import Any
++
++import torch
++from safetensors import safe_open
++from safetensors.torch import save_file
++
++from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.artifact import (
++    load_conversion_state,
++)
++from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.modelopt_moe_checkpoint import (
++    load_qwen3_moe_layer_state,
++    release_qwen3_moe_layer_state,
++)
++from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.moe_fold import (
++    fold_fusable_moe_layer_state,
++)
++from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.moe_semantic_hif4 import (
++    build_moe_diag_state,
++)
++from Native_NVFP4_HiF4_Linear_Puncture.src.formats import qdq_hif4_direct
++from Native_NVFP4_HiF4_Linear_Puncture.src.io_utils import ensure_dir
++
++
++NVFP4_AUX_SUFFIXES = (".weight_scale", ".weight_scale_2", ".input_scale")
++NON_LAYER_KEYS = ("model.embed_tokens.weight", "model.norm.weight", "lm_head.weight")
++
++
++def _copy_json_without_quantization(src: Path, dst: Path) -> None:
++    cfg = json.loads(src.read_text(encoding="utf-8"))
++    cfg.pop("quantization_config", None)
++    cfg["torch_dtype"] = "bfloat16"
++    dst.write_text(json.dumps(cfg, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
++
++
++def _load_diag(spec, diag_mode: str, z: dict[str, torch.Tensor]):
++    diag = build_moe_diag_state(spec, diag_mode)
++    diag.load_snapshot(z)
++    return diag
++
++
++def _copy_non_layer_tensors(src: Path, out: Path, weight_map: dict[str, str]) -> None:
++    index = json.loads((src / "model.safetensors.index.json").read_text(encoding="utf-8"))
++    by_shard: dict[str, list[str]] = {}
++    for key in NON_LAYER_KEYS:
++        shard = index["weight_map"].get(key)
++        if shard is not None:
++            by_shard.setdefault(shard, []).append(key)
++    tensors: dict[str, torch.Tensor] = {}
++    for shard, keys in by_shard.items():
++        with safe_open(str(src / shard), framework="pt", device="cpu") as handle:
++            for key in keys:
++                tensors[key] = handle.get_tensor(key).to(torch.bfloat16).cpu()
++    if not tensors:
++        raise RuntimeError("no non-layer tensors were copied for materialized checkpoint")
++    shard_name = "model-non-layer.safetensors"
++    save_file(tensors, out / shard_name)
++    for key in tensors:
++        weight_map[key] = shard_name
++
++
++def _state_to_tensors(state) -> dict[str, torch.Tensor]:
++    layer = state.layer_idx
++    base = f"model.layers.{layer}"
++    tensors: dict[str, torch.Tensor] = {
++        f"{base}.input_layernorm.weight": state.input_layernorm_weight.to(torch.bfloat16).cpu(),
++        f"{base}.post_attention_layernorm.weight": state.post_attention_layernorm_weight.to(torch.bfloat16).cpu(),
++        f"{base}.self_attn.q_norm.weight": state.q_norm_weight.to(torch.bfloat16).cpu(),
++        f"{base}.self_attn.k_norm.weight": state.k_norm_weight.to(torch.bfloat16).cpu(),
++        f"{base}.mlp.gate.weight": state.router_weight.to(torch.bfloat16).cpu(),
++    }
++    for proj, weight in state.attention.items():
++        tensors[f"{base}.self_attn.{proj}.weight"] = qdq_hif4_direct(
++            weight.to(torch.float32), output_dtype=torch.bfloat16
++        ).cpu()
++    for expert_idx, expert in enumerate(state.experts):
++        ebase = f"{base}.mlp.experts.{expert_idx}"
++        tensors[f"{ebase}.gate_proj.weight"] = qdq_hif4_direct(expert.gate_proj, output_dtype=torch.bfloat16).cpu()
++        tensors[f"{ebase}.up_proj.weight"] = qdq_hif4_direct(expert.up_proj, output_dtype=torch.bfloat16).cpu()
++        tensors[f"{ebase}.down_proj.weight"] = qdq_hif4_direct(expert.down_proj, output_dtype=torch.bfloat16).cpu()
++    return tensors
++
++
++def materialize_moe_checkpoint(
++    *,
++    source_snapshot: str | Path,
++    artifact_path: str | Path,
++    output_dir: str | Path,
++    keep_eval_ckpt: bool = True,
++) -> Path:
++    src = Path(source_snapshot)
++    out = ensure_dir(output_dir)
++    state = load_conversion_state(artifact_path)
++    if state.get("model_type") != "qwen3_moe":
++        raise ValueError("MoE materializer requires schema v2 model_type=qwen3_moe")
++    _copy_json_without_quantization(src / "config.json", out / "config.json")
++    for name in ("tokenizer.json", "tokenizer_config.json", "generation_config.json", "special_tokens_map.json"):
++        p = src / name
++        if p.exists():
++            target = out / name
++            if target.exists():
++                target.unlink()
++            try:
++                target.symlink_to(p)
++            except OSError:
++                shutil.copy2(p, target)
++
++    weight_map: dict[str, str] = {}
++    _copy_non_layer_tensors(src, out, weight_map)
++    layers: dict[str, Any] = state["layers"]
++    for layer_key, rec in sorted(layers.items(), key=lambda kv: int(kv[0])):
++        layer_idx = int(layer_key)
++        layer_state = load_qwen3_moe_layer_state(src, layer_idx, "cpu")
++        try:
++            diag = _load_diag(layer_state.spec, state["diag_mode"], rec["z"])
++            if state["diag_mode"] == "fusable":
++                layer_state = fold_fusable_moe_layer_state(
++                    layer_state, diag, use_r64=bool(state["use_r64"])
++                )
++            tensors = _state_to_tensors(layer_state)
++            shard = f"model-layer-{layer_idx:05d}-of-{len(layers):05d}.safetensors"
++            save_file(tensors, out / shard)
++            for key in tensors:
++                if key.endswith(NVFP4_AUX_SUFFIXES):
++                    raise RuntimeError(f"materialized checkpoint leaked NVFP4 aux tensor {key}")
++                weight_map[key] = shard
++        finally:
++            release_qwen3_moe_layer_state(layer_state)
++
++    index = {"metadata": {"total_size": 0}, "weight_map": weight_map}
++    (out / "model.safetensors.index.json").write_text(
++        json.dumps(index, indent=2, sort_keys=True) + "\n",
++        encoding="utf-8",
++    )
++    runtime_spec = {
++        "model_type": "qwen3_moe",
++        "variant": state["diag_mode"],
++        "use_r64": bool(state["use_r64"]),
++        "rot_order": state["rot_order"],
++        "num_layers": int(state["num_layers"]),
++        "online_activation_diag": {
++            k: v["z"] for k, v in layers.items()
++        } if state["diag_mode"] == "online" else {},
++        "r64_placement": "qkv/gate/up/down contiguous G64; o per head; router none",
++    }
++    torch.save(runtime_spec, out / "hif4_runtime_spec.pt")
++    if not keep_eval_ckpt:
++        return out
++    return out
++
++
++def materialize_moe_identity_checkpoint(
++    *,
++    source_snapshot: str | Path,
++    output_dir: str | Path,
++    layer_indices: list[int] | None = None,
++    use_r64: bool = False,
++    keep_eval_ckpt: bool = True,
++) -> Path:
++    """Materialize direct-HiF4 or R64-only MoE checkpoints without DIAG artifacts."""
++    src = Path(source_snapshot)
++    out = ensure_dir(output_dir)
++    _copy_json_without_quantization(src / "config.json", out / "config.json")
++    for name in ("tokenizer.json", "tokenizer_config.json", "generation_config.json", "special_tokens_map.json"):
++        p = src / name
++        if p.exists():
++            target = out / name
++            if target.exists():
++                target.unlink()
++            try:
++                target.symlink_to(p)
++            except OSError:
++                shutil.copy2(p, target)
++
++    cfg = json.loads((src / "config.json").read_text(encoding="utf-8"))
++    num_layers = int(cfg["num_hidden_layers"])
++    layers = list(range(num_layers)) if layer_indices is None else [int(i) for i in layer_indices]
++    if not layers:
++        raise ValueError("layer_indices must not be empty")
++
++    weight_map: dict[str, str] = {}
++    _copy_non_layer_tensors(src, out, weight_map)
++    for layer_idx in layers:
++        layer_state = load_qwen3_moe_layer_state(src, layer_idx, "cpu")
++        try:
++            if use_r64:
++                diag = build_moe_diag_state(layer_state.spec, "fusable")
++                layer_state = fold_fusable_moe_layer_state(layer_state, diag, use_r64=True)
++            tensors = _state_to_tensors(layer_state)
++            shard = f"model-layer-{layer_idx:05d}-of-{len(layers):05d}.safetensors"
++            save_file(tensors, out / shard)
++            for key in tensors:
++                if key.endswith(NVFP4_AUX_SUFFIXES):
++                    raise RuntimeError(f"materialized checkpoint leaked NVFP4 aux tensor {key}")
++                weight_map[key] = shard
++        finally:
++            release_qwen3_moe_layer_state(layer_state)
++
++    index = {"metadata": {"total_size": 0}, "weight_map": weight_map}
++    (out / "model.safetensors.index.json").write_text(
++        json.dumps(index, indent=2, sort_keys=True) + "\n",
++        encoding="utf-8",
++    )
++    runtime_spec = {
++        "model_type": "qwen3_moe",
++        "variant": "r64" if use_r64 else "direct",
++        "use_r64": bool(use_r64),
++        "rot_order": "diag_then_rot",
++        "num_layers": num_layers,
++        "online_activation_diag": {},
++        "r64_placement": "qkv/gate/up/down contiguous G64; o per head; router none",
++    }
++    torch.save(runtime_spec, out / "hif4_runtime_spec.pt")
++    if not keep_eval_ckpt:
++        return out
++    return out
+diff --git a/Native_NVFP4_HiF4_Linear_Puncture/experiments/e2e_diag_reconstruction/training/moe_layer_runtime.py b/Native_NVFP4_HiF4_Linear_Puncture/experiments/e2e_diag_reconstruction/training/moe_layer_runtime.py
+new file mode 100644
+index 0000000..7fcfcad
+--- /dev/null
++++ b/Native_NVFP4_HiF4_Linear_Puncture/experiments/e2e_diag_reconstruction/training/moe_layer_runtime.py
+@@ -0,0 +1,75 @@
++"""Call boundary for one lazy Qwen3-MoE decoder layer.
++
++This module owns the non-weight inputs needed by the Task-3 native semantic
++teacher: position ids, RoPE embeddings and the single-layer runtime call.  It
++does not materialize the full model and does not implement any H16 path.
++"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++
++import torch
++from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeRotaryEmbedding
++
++from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.moe_semantic_hif4 import (
++    NativeMoEForward,
++    NativeQwen3MoELayerRuntime,
++    qwen3_moe_config_from_snapshot,
++)
++
++
++@dataclass(frozen=True)
++class Qwen3MoeLayerCall:
++    hidden_states: torch.Tensor
++    attention_mask: torch.Tensor | None
++    position_ids: torch.Tensor
++    position_embeddings: tuple[torch.Tensor, torch.Tensor]
++
++
++def build_position_ids(
++    batch_size: int,
++    seq_len: int,
++    *,
++    device: torch.device | str,
++    start: int = 0,
++) -> torch.Tensor:
++    if batch_size <= 0 or seq_len <= 0:
++        raise ValueError("batch_size and seq_len must be positive")
++    return torch.arange(start, start + seq_len, device=device, dtype=torch.long).unsqueeze(0).expand(batch_size, -1)
++
++
++def build_qwen3_moe_layer_call(
++    snapshot: str,
++    hidden_states: torch.Tensor,
++    *,
++    attention_mask: torch.Tensor | None = None,
++    position_ids: torch.Tensor | None = None,
++) -> Qwen3MoeLayerCall:
++    if hidden_states.ndim != 3:
++        raise ValueError(f"hidden_states must be [batch, seq, hidden], got {tuple(hidden_states.shape)}")
++    if position_ids is None:
++        position_ids = build_position_ids(
++            int(hidden_states.shape[0]),
++            int(hidden_states.shape[1]),
++            device=hidden_states.device,
++        )
++    config = qwen3_moe_config_from_snapshot(snapshot)
++    rope = Qwen3MoeRotaryEmbedding(config).to(hidden_states.device)
++    return Qwen3MoeLayerCall(
++        hidden_states=hidden_states,
++        attention_mask=attention_mask,
++        position_ids=position_ids,
++        position_embeddings=rope(hidden_states, position_ids),
++    )
++
++
++def call_native_qwen3_moe_layer(
++    runtime: NativeQwen3MoELayerRuntime,
++    call: Qwen3MoeLayerCall,
++) -> NativeMoEForward:
++    return runtime(
++        call.hidden_states,
++        attention_mask=call.attention_mask,
++        position_embeddings=call.position_embeddings,
++    )
+diff --git a/Native_NVFP4_HiF4_Linear_Puncture/experiments/e2e_diag_reconstruction/training/moe_trainer.py b/Native_NVFP4_HiF4_Linear_Puncture/experiments/e2e_diag_reconstruction/training/moe_trainer.py
+new file mode 100644
+index 0000000..19e3041
+--- /dev/null
++++ b/Native_NVFP4_HiF4_Linear_Puncture/experiments/e2e_diag_reconstruction/training/moe_trainer.py
+@@ -0,0 +1,371 @@
++"""Lazy layerwise training orchestration for Qwen3-MoE."""
++
++from __future__ import annotations
++
++from pathlib import Path
++from typing import Any
++
++import torch
++from safetensors import safe_open
++from transformers import AutoTokenizer
++
++from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.artifact import (
++    save_conversion_artifact,
++    save_layer_artifacts,
++)
++from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.config import E2ETrainConfig
++from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.modelopt_moe_checkpoint import (
++    load_qwen3_moe_layer_state,
++    release_qwen3_moe_layer_state,
++)
++from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.moe_fold import (
++    router_compensation_topk_gate,
++)
++from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.moe_semantic_hif4 import (
++    NativeQwen3MoELayerRuntime,
++    StudentQwen3MoELayerRuntime,
++    StudentStepCache,
++    build_moe_diag_state,
++    summarize_expert_coverage,
++)
++from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.data.batching import (
++    DynamicCalibrationCollator,
++    build_length_bucket_batches,
++    build_validation_batches,
++)
++from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.data.calibration import (
++    CalibrationSample,
++    build_or_load_calibration,
++)
++from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.training.layer_runtime import (
++    ProgressiveHiddenCache,
++)
++from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.training.losses import (
++    finalize_reconstruction_loss,
++    masked_reconstruction_components,
++)
++from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.training.moe_layer_runtime import (
++    build_qwen3_moe_layer_call,
++)
++from Native_NVFP4_HiF4_Linear_Puncture.src.checkpoint import resolve_local_snapshot
++from Native_NVFP4_HiF4_Linear_Puncture.src.io_utils import ensure_dir, write_json
++
++
++def _load_tensor(snapshot: Path, key: str) -> torch.Tensor:
++    import json
++
++    index = json.loads((snapshot / "model.safetensors.index.json").read_text(encoding="utf-8"))
++    shard = index["weight_map"][key]
++    with safe_open(str(snapshot / shard), framework="pt", device="cpu") as handle:
++        return handle.get_tensor(key)
++
++
++def build_initial_moe_hidden_cache(
++    snapshot: Path,
++    samples: list[CalibrationSample],
++    collator: DynamicCalibrationCollator,
++    device: torch.device,
++    batch_size: int,
++) -> ProgressiveHiddenCache:
++    embed = _load_tensor(snapshot, "model.embed_tokens.weight").to(device=device, dtype=torch.bfloat16)
++    cache = ProgressiveHiddenCache()
++    for batch in build_validation_batches(samples, batch_size):
++        packed = collator(batch)
++        ids = packed["input_ids"].to(device)
++        hidden = embed[ids]
++        for i, sample in enumerate(batch):
++            n = int(packed["lengths"][i].item())
++            cache.store(sample.sample_id, hidden[i, :n], n)
++    del embed
++    return cache
++
++
++def _teacher_targets(
++    runtime: NativeQwen3MoELayerRuntime,
++    snapshot: Path,
++    samples: list[CalibrationSample],
++    collator: DynamicCalibrationCollator,
++    x_cache: ProgressiveHiddenCache,
++    device: torch.device,
++    batch_size: int,
++) -> dict[str, torch.Tensor]:
++    targets: dict[str, torch.Tensor] = {}
++    runtime.eval()
++    for batch in build_validation_batches(samples, batch_size):
++        packed = collator(batch)
++        sample_ids = [s.sample_id for s in batch]
++        hidden, _ = x_cache.assemble(sample_ids, device)
++        call = build_qwen3_moe_layer_call(str(snapshot), hidden)
++        with torch.no_grad():
++            y = runtime(
++                hidden,
++                attention_mask=None,
++                position_embeddings=call.position_embeddings,
++            ).output
++        for i, sample in enumerate(batch):
++            n = int(packed["lengths"][i].item())
++            targets[sample.sample_id] = y[i, :n].detach().cpu().to(torch.bfloat16)
++    return targets
++
++
++def _assemble_targets(targets: dict[str, torch.Tensor], sample_ids: list[str], device: torch.device) -> torch.Tensor:
++    hs = [targets[sid] for sid in sample_ids]
++    tmax = max(int(h.shape[0]) for h in hs)
++    hidden = int(hs[0].shape[1])
++    out = torch.zeros(len(hs), tmax, hidden, dtype=torch.bfloat16, device=device)
++    for i, h in enumerate(hs):
++        out[i, : h.shape[0]] = h.to(device)
++    return out
++
++
++def _eval_student(
++    runtime: StudentQwen3MoELayerRuntime,
++    snapshot: Path,
++    samples: list[CalibrationSample],
++    collator: DynamicCalibrationCollator,
++    x_cache: ProgressiveHiddenCache,
++    targets: dict[str, torch.Tensor],
++    cfg: E2ETrainConfig,
++    device: torch.device,
++) -> tuple[float, float, float, torch.Tensor, dict[str, int]]:
++    total_num = torch.zeros((), dtype=torch.float64)
++    total_den = torch.zeros((), dtype=torch.float64)
++    counts = torch.zeros(runtime.state.spec.num_experts, dtype=torch.long)
++    qdq_calls: dict[str, int] = {}
++    runtime.eval()
++    for batch in build_validation_batches(samples, cfg.diag_batch_size):
++        packed = collator(batch)
++        sample_ids = [s.sample_id for s in batch]
++        hidden, _ = x_cache.assemble(sample_ids, device)
++        target = _assemble_targets(targets, sample_ids, device)
++        call = build_qwen3_moe_layer_call(str(snapshot), hidden)
++        cache = StudentStepCache.new()
++        with torch.no_grad():
++            out = runtime(
++                hidden,
++                attention_mask=None,
++                position_embeddings=call.position_embeddings,
++                step_cache=cache,
++                use_ste=False,
++            )
++        pred = out.output.float() - hidden.float()
++        tgt = target.float() - hidden.float()
++        num, den = masked_reconstruction_components(
++            pred, tgt, packed["loss_mask"].to(device), packed["attention_mask"].to(device), cfg.recon_loss
++        )
++        total_num += num.cpu().double()
++        total_den += den.cpu().double()
++        counts += out.per_expert_routed_token_count.cpu()
++        for key, value in cache.weight_qdq_calls_by_proj.items():
++            qdq_calls[key] = qdq_calls.get(key, 0) + value
++    loss = finalize_reconstruction_loss(total_num, total_den, cfg.recon_loss)
++    return float(loss.item()), float(total_num.item()), float(total_den.item()), counts, qdq_calls
++
++
++def _train_layer(
++    runtime: StudentQwen3MoELayerRuntime,
++    snapshot: Path,
++    train_samples: list[CalibrationSample],
++    collator: DynamicCalibrationCollator,
++    x_cache: ProgressiveHiddenCache,
++    targets: dict[str, torch.Tensor],
++    cfg: E2ETrainConfig,
++    device: torch.device,
++    epoch: int,
++    optimizer: torch.optim.Optimizer,
++) -> int:
++    steps = 0
++    runtime.train()
++    for batch in build_length_bucket_batches(train_samples, cfg.diag_batch_size, cfg.calib_seed + epoch):
++        packed = collator(batch)
++        sample_ids = [s.sample_id for s in batch]
++        hidden, _ = x_cache.assemble(sample_ids, device)
++        target = _assemble_targets(targets, sample_ids, device)
++        call = build_qwen3_moe_layer_call(str(snapshot), hidden)
++        cache = StudentStepCache.new()
++        optimizer.zero_grad(set_to_none=True)
++        out = runtime(
++            hidden,
++            attention_mask=None,
++            position_embeddings=call.position_embeddings,
++            step_cache=cache,
++            use_ste=True,
++        )
++        pred = out.output.float() - hidden.float()
++        tgt = target.float() - hidden.float()
++        num, den = masked_reconstruction_components(
++            pred, tgt, packed["loss_mask"].to(device), packed["attention_mask"].to(device), cfg.recon_loss
++        )
++        loss = finalize_reconstruction_loss(num, den, cfg.recon_loss)
++        if not torch.isfinite(loss):
++            raise RuntimeError("non-finite MoE layer train loss")
++        loss.backward()
++        optimizer.step()
++        runtime.diag_state.clamp_log2_(cfg.diag_log2_clamp or (-4.0, 4.0))
++        steps += 1
++    return steps
++
++
++def _propagate(
++    runtime,
++    snapshot: Path,
++    samples: list[CalibrationSample],
++    collator: DynamicCalibrationCollator,
++    x_cache: ProgressiveHiddenCache,
++    device: torch.device,
++    batch_size: int,
++    *,
++    student: bool,
++) -> ProgressiveHiddenCache:
++    nxt = ProgressiveHiddenCache()
++    for batch in build_validation_batches(samples, batch_size):
++        packed = collator(batch)
++        sample_ids = [s.sample_id for s in batch]
++        hidden, _ = x_cache.assemble(sample_ids, device)
++        call = build_qwen3_moe_layer_call(str(snapshot), hidden)
++        with torch.no_grad():
++            if student:
++                y = runtime(
++                    hidden,
++                    attention_mask=None,
++                    position_embeddings=call.position_embeddings,
++                    step_cache=StudentStepCache.new(),
++                    use_ste=False,
++                ).output
++            else:
++                y = runtime(
++                    hidden,
++                    attention_mask=None,
++                    position_embeddings=call.position_embeddings,
++                ).output
++        for i, sample in enumerate(batch):
++            n = int(packed["lengths"][i].item())
++            nxt.store(sample.sample_id, y[i, :n], n)
++    return nxt
++
++
++def train_qwen3_moe_lazy(cfg: E2ETrainConfig, device: torch.device) -> None:
++    snapshot = Path(resolve_local_snapshot(cfg.model_path))
++    out_dir = ensure_dir(cfg.output_dir)
++    tokenizer = AutoTokenizer.from_pretrained(str(snapshot), trust_remote_code=True)
++    if tokenizer.pad_token_id is None:
++        tokenizer.pad_token = tokenizer.eos_token
++    train_samples, val_samples = build_or_load_calibration(
++        cfg,
++        tokenizer,
++        None,
++        Path(cfg.calib_cache_dir) if cfg.calib_cache_dir else out_dir,
++    )
++    collator = DynamicCalibrationCollator(int(tokenizer.pad_token_id))
++    all_samples = list(train_samples) + list(val_samples)
++    x_cache = build_initial_moe_hidden_cache(snapshot, all_samples, collator, device, cfg.diag_batch_size)
++    write_json(out_dir / "config.json", cfg.to_dict())
++    layer_records: dict[int, dict[str, Any]] = {}
++    summaries: list[dict[str, Any]] = []
++
++    for layer_idx in range(cfg.start_layer, cfg.end_layer + 1):
++        state = load_qwen3_moe_layer_state(snapshot, layer_idx, device)
++        try:
++            native = NativeQwen3MoELayerRuntime(state).to(device).eval()
++            train_targets = _teacher_targets(native, snapshot, train_samples, collator, x_cache, device, cfg.diag_batch_size)
++            val_targets = _teacher_targets(native, snapshot, val_samples, collator, x_cache, device, cfg.diag_batch_size)
++            diag_state = build_moe_diag_state(state.spec, cfg.diag_mode).to(device)
++            student = StudentQwen3MoELayerRuntime(
++                state,
++                diag_state,
++                use_r64=cfg.use_r64,
++                rot_order=cfg.rot_order,
++            ).to(device)
++            identity_loss, identity_num, identity_den, val_counts, qdq_calls = _eval_student(
++                student, snapshot, val_samples, collator, x_cache, val_targets, cfg, device
++            )
++            optimizer = torch.optim.AdamW(diag_state.parameters(), lr=cfg.diag_lr)
++            best_loss = identity_loss
++            best_epoch = -1
++            best_snapshot = diag_state.snapshot()
++            train_steps = 0
++            for epoch in range(cfg.diag_epochs):
++                train_steps += _train_layer(
++                    student, snapshot, train_samples, collator, x_cache, train_targets, cfg, device, epoch, optimizer
++                )
++                val_loss, _num, _den, val_counts, qdq_calls = _eval_student(
++                    student, snapshot, val_samples, collator, x_cache, val_targets, cfg, device
++                )
++                if val_loss < best_loss:
++                    best_loss = val_loss
++                    best_epoch = epoch
++                    best_snapshot = diag_state.snapshot()
++            diag_state.load_snapshot(best_snapshot)
++            rollback = cfg.layer_rollback == "on" and best_loss >= identity_loss
++            if rollback:
++                for p in diag_state.parameters():
++                    p.data.zero_()
++                best_snapshot = diag_state.snapshot()
++                best_loss = identity_loss
++            gate_stats: dict[str, float | int] = {}
++            router_gate_rollback = False
++            if cfg.diag_mode == "fusable":
++                hidden_val, _ = x_cache.assemble([s.sample_id for s in val_samples], device)
++                gate_stats = router_compensation_topk_gate(
++                    hidden_val.reshape(-1, hidden_val.shape[-1]),
++                    state.router_weight,
++                    diag_state,  # type: ignore[arg-type]
++                    top_k=state.spec.top_k,
++                )
++                if int(gate_stats["topk_mismatches"]) != 0:
++                    if cfg.layer_rollback != "on":
++                        raise RuntimeError(f"folded BF16 router top-k mismatch: {gate_stats}")
++                    router_gate_rollback = True
++                    rollback = True
++                    for p in diag_state.parameters():
++                        p.data.zero_()
++                    best_snapshot = diag_state.snapshot()
++                    best_loss = identity_loss
++                    gate_stats = router_compensation_topk_gate(
++                        hidden_val.reshape(-1, hidden_val.shape[-1]),
++                        state.router_weight,
++                        diag_state,  # type: ignore[arg-type]
++                        top_k=state.spec.top_k,
++                    )
++                    if int(gate_stats["topk_mismatches"]) != 0:
++                        raise RuntimeError(f"identity folded BF16 router top-k mismatch: {gate_stats}")
++            coverage = summarize_expert_coverage(
++                train_counts=torch.zeros_like(val_counts),
++                val_counts=val_counts,
++                step_cache=StudentStepCache(transformed_weight_qdq={}, weight_qdq_calls_by_proj=qdq_calls),
++            )
++            metrics = {
++                "layer_id": layer_idx,
++                "identity_val_loss": identity_loss,
++                "identity_val_num": identity_num,
++                "identity_val_den": identity_den,
++                "best_val_loss": best_loss,
++                "best_epoch": best_epoch,
++                "accepted": not rollback,
++                "rollback": rollback,
++                "router_gate_rollback": router_gate_rollback,
++                "train_steps": train_steps,
++                "active_experts_val": sorted(coverage.active_experts_val),
++                "never_routed_experts": coverage.never_routed_experts,
++                "min_routed_tokens": coverage.min_routed_tokens,
++                "median_routed_tokens": coverage.median_routed_tokens,
++                "max_routed_tokens": coverage.max_routed_tokens,
++                "weight_qdq_calls_by_proj": coverage.weight_qdq_calls_by_proj,
++                **{f"router_{k}": v for k, v in gate_stats.items()},
++            }
++            save_layer_artifacts(out_dir, layer_idx, z=best_snapshot, metrics=metrics, train_log=[])
++            layer_records[layer_idx] = {
++                "accepted": not rollback,
++                "rollback": rollback,
++                "best_epoch": best_epoch,
++                "z": best_snapshot,
++            }
++            summaries.append(metrics)
++            if cfg.calib_input_mode == "teacher" or rollback:
++                x_cache = _propagate(native, snapshot, all_samples, collator, x_cache, device, cfg.diag_batch_size, student=False)
++            else:
++                x_cache = _propagate(student, snapshot, all_samples, collator, x_cache, device, cfg.diag_batch_size, student=True)
++        finally:
++            release_qwen3_moe_layer_state(state)
++    save_conversion_artifact(cfg=cfg, layer_records=layer_records, out_dir=out_dir)
++    write_json(out_dir / "summary.json", {"layers": summaries})
+diff --git a/Native_NVFP4_HiF4_Linear_Puncture/results/e2e_diag_reconstruction/QWEN3_30B_IMPLEMENTATION_PROGRESS.md b/Native_NVFP4_HiF4_Linear_Puncture/results/e2e_diag_reconstruction/QWEN3_30B_IMPLEMENTATION_PROGRESS.md
+new file mode 100644
+index 0000000..936b3a7
+--- /dev/null
++++ b/Native_NVFP4_HiF4_Linear_Puncture/results/e2e_diag_reconstruction/QWEN3_30B_IMPLEMENTATION_PROGRESS.md
+@@ -0,0 +1,15 @@
++Task 0 | PASS | conda run -n hif4 pytest test_moe_model_spec.py test_config.py test_modelopt_moe_checkpoint.py test_moe_native_teacher.py test_moe_transforms.py -q | core/moe_model_spec.py, core/modelopt_moe_checkpoint.py, tests/e2e_diag_reconstruction/test_moe_model_spec.py | audit passed real snapshot contract and target counts
++Task 1 | FAIL | audit | core/config.py, cli/train.py, cli/prepare_calibration.py, tests/e2e_diag_reconstruction/test_config.py | config tests pass but cli/train.py still enters legacy 8B orchestration; will complete with Task 7 MoE lazy train dispatch
++Task 2 | PASS | conda run -n hif4 pytest test_moe_model_spec.py test_config.py test_modelopt_moe_checkpoint.py test_moe_native_teacher.py test_moe_transforms.py -q | core/modelopt_moe_checkpoint.py, tests/e2e_diag_reconstruction/test_modelopt_moe_checkpoint.py | layer0/23/47 lazy load/release and scale-collapse tests passed
++Task 3 | PASS | CUDA_VISIBLE_DEVICES=0 conda run -n hif4 pytest Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_moe_native_teacher.py -q; tolerance dense atol=0 rtol=0, moe atol=0.05 rtol=0.01 | core/moe_semantic_hif4.py, training/moe_layer_runtime.py, tests/e2e_diag_reconstruction/test_moe_native_teacher.py | real checkpoint attention projection, routed MoE, and router logits/top-k reference gates passed
++Task 4 | PASS | CUDA_VISIBLE_DEVICES=0 conda run -n hif4 pytest Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_moe_model_spec.py Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_config.py Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_modelopt_moe_checkpoint.py Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_moe_native_teacher.py Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_moe_transforms.py -q | core/moe_transforms.py, tests/e2e_diag_reconstruction/test_moe_transforms.py | no-H16 DIAG/R64 equivalence tests passed
++Task 5 | PASS | conda run -n hif4 pytest Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_moe_semantic_hif4.py -q | core/moe_semantic_hif4.py, training/moe_layer_runtime.py, tests/e2e_diag_reconstruction/test_moe_semantic_hif4.py | 5A-5E state, attention, expert, QDQ-once, current-layer forward, and coverage gates passed
++Task 6 | PASS | conda run -n hif4 pytest Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_moe_semantic_hif4.py Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_moe_fold.py -q | core/moe_fold.py, core/moe_semantic_hif4.py, tests/e2e_diag_reconstruction/test_moe_fold.py | fusable fold, BF16 router top-k gate, and no-QDQ full-layer equivalence passed
++Task 1 | PASS | conda run -n hif4 pytest Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_config.py Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_moe_semantic_hif4.py Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_moe_fold.py -q | core/config.py, cli/train.py, cli/prepare_calibration.py, tests/e2e_diag_reconstruction/test_config.py | 30B MoE config dispatch now enters lazy MoE trainer instead of legacy 8B trainer
++Task 7 | PASS | conda run -n hif4 pytest Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_config.py Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_moe_semantic_hif4.py Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_moe_fold.py -q | cli/train.py, training/moe_trainer.py, training/moe_layer_runtime.py, tests/e2e_diag_reconstruction/test_config.py | lazy layerwise MoE training orchestration and train CLI dispatch tests passed
++Task 8 | PASS | conda run -n hif4 pytest Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_fold_artifact.py -q | core/artifact.py, scripts/common.sh, tests/e2e_diag_reconstruction/test_fold_artifact.py | schema v2 MoE artifact fields and 48-layer completion checks passed
++Task 9 | PASS | conda run -n hif4 pytest Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_moe_materialize.py -q | evaluation/moe_materialize.py, tests/e2e_diag_reconstruction/test_moe_materialize.py | streaming materializer writes BF16 layer shard, standard index, dequantized config, and sidecar without NVFP4 aux tensors
++Task 10 | PASS | conda run -n hif4 pytest Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_moe_vllm_runtime.py -q | main.py, 3rdparty/vllm/vllm/model_executor/layers/linear.py, 3rdparty/vllm/vllm/model_executor/layers/quantization/hif4_runtime.py, tests/e2e_diag_reconstruction/test_moe_vllm_runtime.py | dense sidecar loading/cache and no-sidecar noop gates passed
++Task 11 | PASS | conda run -n hif4 pytest Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_moe_vllm_runtime.py -q | 3rdparty/vllm/vllm/model_executor/layers/fused_moe/unquantized_fused_moe_method.py, 3rdparty/vllm/vllm/model_executor/layers/fused_moe/experts/hif4_emulation_moe.py, 3rdparty/vllm/vllm/model_executor/layers/fused_moe/experts/hif4_online_reference_moe.py, tests/e2e_diag_reconstruction/test_moe_vllm_runtime.py | synthetic fused/direct and online MoE correctness tests passed
++Task 12 | PASS | conda run -n hif4 pytest Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_evaluation.py -q | evaluation/vllm_runner.py, evaluation/lm_eval_vllm.py, evaluation/summarize.py, tests/e2e_diag_reconstruction/test_evaluation.py | lm_eval/vLLM kwargs, native sidecar dispatch, and MMLU-Pro-first selection rule passed
++Task 13 | PASS | CUDA_VISIBLE_DEVICES=0 conda run -n hif4 pytest Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction -q; conda run -n hif4 pytest Native_NVFP4_HiF4_Linear_Puncture/tests/test_*.py -q; CUDA_VISIBLE_DEVICES=0,3 conda run -n hif4 python NVFP4/scripts/run_qwen3_30b_hif4_converted_smoke.py --checkpoint /tmp/hif4_task13_smoke/I_E1_direct_full --hif4-runtime-spec /tmp/hif4_task13_smoke/I_E1_direct_full/hif4_runtime_spec.pt --tp 2 --kv-cache-dtype bfloat16 --enforce-eager --max-model-len 512 --max-num-batched-tokens 512 --max-new-tokens 8 --tag task13_I_E1_direct_converted_tp2_bf16 --out-json /tmp/hif4_task13_smoke/I_E1_direct_converted_tp2_bf16.json; CUDA_VISIBLE_DEVICES=0,7 conda run -n hif4 python NVFP4/scripts/run_qwen3_30b_nvfp4_emulation_smoke.py --tp 2 --kv-cache-dtype bfloat16 --enforce-eager --max-model-len 512 --max-new-tokens 16 --tag task13_J_native_tp2_bf16 --out-json /tmp/hif4_task13_smoke/J_native_tp2_bf16.json; conda run -n hif4 python NVFP4/scripts/diagnose_qwen3_30b_nvfp4_tp_parity.py --tp1-gpus 0 --tp2-gpus 0,7 --top-logprobs 100 --max-new-tokens 8 --summary-json /tmp/hif4_task13_tp_parity/summary_top100.json --out-dir /tmp/hif4_task13_tp_parity/top100; CUDA_VISIBLE_DEVICES=0 conda run -n hif4 python NVFP4/scripts/diagnose_qwen3_30b_nvfp4_layer_tp_puncture.py --layer 0 --tokens 4 --out-json /tmp/hif4_task13_tp_parity/layer0_puncture.json | NVFP4/scripts/run_qwen3_30b_hif4_converted_smoke.py, NVFP4/scripts/diagnose_qwen3_30b_nvfp4_tp_parity.py, NVFP4/scripts/diagnose_qwen3_30b_nvfp4_layer_tp_puncture.py, /tmp/hif4_task13_smoke/*.json, /tmp/hif4_task13_tp_parity/*.json | A-H/J passed; I converted TP2 BF16-KV generate passed with sidecar_effective=true, trace sidecar_load=2 dense_apply=288 moe_apply=2; K numerical parity diagnostic supports Case A: prefill top1 all equal, top-k overlap high, first-divergence margins small/tie-like, layer puncture scale/group/routing invariants pass; full e2e 95 passed and old 8B 68 passed
+diff --git a/Native_NVFP4_HiF4_Linear_Puncture/results/e2e_diag_reconstruction/QWEN3_30B_IMPLEMENTATION_STOP_REASON.md b/Native_NVFP4_HiF4_Linear_Puncture/results/e2e_diag_reconstruction/QWEN3_30B_IMPLEMENTATION_STOP_REASON.md
+new file mode 100644
+index 0000000..7fc5106
+--- /dev/null
++++ b/Native_NVFP4_HiF4_Linear_Puncture/results/e2e_diag_reconstruction/QWEN3_30B_IMPLEMENTATION_STOP_REASON.md
+@@ -0,0 +1,15 @@
++当前状态：已解除，不再是 blocker。
++
++历史问题：
++Task 13 K 最初只比较了 TP1/TP2 greedy generation 文本，发现文本不一致。该 smoke 没有保存 logits/logprobs，因此不能证明 TP1/TP2 logits 超出容差，也不能直接认定 NVFP4 TP2 emulation 有算法 bug。
++
++修正后的诊断：
++`NVFP4/scripts/diagnose_qwen3_30b_nvfp4_tp_parity.py` 已执行 top-100 raw-logits/logprobs diagnostic：TP1/TP2 均为 emulation backend、BF16 KV、eager、prefix caching off、async scheduling off；prefill next-token top1 在 4/4 prompts 上一致；greedy divergence 出现在后续 decode step，且分叉点 top-k overlap 高、shared top-100 cosine 约 0.9995-0.9998，top1/top2 margin 为 0 或很小。
++
++`NVFP4/scripts/diagnose_qwen3_30b_nvfp4_layer_tp_puncture.py` 已执行 layer0 TP puncture：q/k/v、router logits、W13 gate/up、SwiGLU 均为 0 差异；selected experts 一致；QKV/MoE global scale 与 group16 shard invariant 均通过；o_proj/W2/complete MoE 仅表现为小的 BF16 row-parallel reduction-order 差异。
++
++结论：
++当前证据支持 Case A：小数值差异 + 小 margin 导致 greedy bifurcation。Task 13 K 已按修订计划验收为 numerical parity diagnostic，greedy exact-match 仅作为 report，不作为 PASS/FAIL gate。
++
++后续状态：
++Task 13 I/J/K 与完整回归均已通过。不得从该历史文件推断当前仍需停止，也不得据此修改 NVFP4 emulation 数学或改用 TP1。
+diff --git a/Native_NVFP4_HiF4_Linear_Puncture/results/e2e_diag_reconstruction/QWEN3_30B_TP_PARITY_DIAGNOSTIC.md b/Native_NVFP4_HiF4_Linear_Puncture/results/e2e_diag_reconstruction/QWEN3_30B_TP_PARITY_DIAGNOSTIC.md
+new file mode 100644
+index 0000000..84faad0
+--- /dev/null
++++ b/Native_NVFP4_HiF4_Linear_Puncture/results/e2e_diag_reconstruction/QWEN3_30B_TP_PARITY_DIAGNOSTIC.md
+@@ -0,0 +1,83 @@
++# Qwen3-30B NVFP4 TP Parity Diagnostic
++
++## Scope
++
++This diagnostic corrects the earlier Task 13 K interpretation. The previous smoke only proved:
++
++```text
++TP1 greedy generation != TP2 greedy generation
++```
++
++It did not prove full-vocab logits mismatch beyond tolerance.
++
++## Commands
++
++```bash
++conda run -n hif4 python NVFP4/scripts/diagnose_qwen3_30b_nvfp4_tp_parity.py \
++  --tp1-gpus 0 \
++  --tp2-gpus 0,7 \
++  --top-logprobs 100 \
++  --max-new-tokens 8 \
++  --summary-json /tmp/hif4_task13_tp_parity/summary_top100.json \
++  --out-dir /tmp/hif4_task13_tp_parity/top100
++```
++
++```bash
++CUDA_VISIBLE_DEVICES=0 conda run -n hif4 python \
++  NVFP4/scripts/diagnose_qwen3_30b_nvfp4_layer_tp_puncture.py \
++  --layer 0 \
++  --tokens 4 \
++  --out-json /tmp/hif4_task13_tp_parity/layer0_puncture.json
++```
++
++## Next-Token Top-100 Raw-Logits Diagnostic
++
++This uses vLLM `logprobs_mode=raw_logits` and top-100 returned scores, not full-vocab logits.
++
++- TP1 and TP2 both used `linear_backend=emulation`, `moe_backend=emulation`, `kv_cache_dtype=bfloat16`, `enforce_eager=true`, `enable_prefix_caching=false`, `async_scheduling=false`.
++- Prefill next-token top1 matched for all 4 prompts.
++- Greedy generation still diverged for 3 of 4 prompts within 8 generated tokens.
++- First-divergence top-k overlap stayed high: top5 overlap 4-5, top10 overlap 9 for divergent prompts.
++- First-divergence shared top-100 cosine was high: about 0.9995-0.9998.
++- Divergence occurred at small or tie-like margins:
++  - `Hello`: TP1 margin 0.0, TP2 margin 0.25.
++  - `The capital of France is`: TP1 margin 0.75, TP2 margin 0.875.
++  - `Write one word: ok`: TP1 margin 0.75, TP2 margin 0.0.
++
++## Layer-Level TP Puncture
++
++Layer 0 fixed hidden tensor, full result vs TP2 shard/reduce reconstruction:
++
++```text
++q_proj max_abs=0 rel_l2=0
++k_proj max_abs=0 rel_l2=0
++v_proj max_abs=0 rel_l2=0
++router_logits max_abs=0 rel_l2=0
++W13 gate max_abs=0 rel_l2=0
++W13 up max_abs=0 rel_l2=0
++SwiGLU max_abs=0 rel_l2=0
++o_proj row-reduce max_abs=0.0078125 rel_l2=0.002936 nmse=8.62e-06
++W2 row-reduce max_abs=0.03125 rel_l2=0.003613 nmse=1.31e-05
++complete MoE max_abs=0.03125 rel_l2=0.003745 nmse=1.40e-05
++```
++
++Scale and sharding invariants checked:
++
++```text
++qkv_input_global_scale_inv_all_equal=true
++qkv_weight_global_scale_all_equal=true
++moe_a13_input_global_scale_inv_all_equal=true
++moe_a2_input_global_scale_inv_all_equal=true
++hidden_half_mod16=0
++q_out_half_mod16=0
++kv_out_half_mod16=0
++moe_intermediate_half_mod16=0
++router_selected_experts_equal=true
++moe_selected_experts_equal=true
++```
++
++## Current Interpretation
++
++The current evidence favors Case A: small numerical differences and small/tie-like top1/top2 margins cause greedy bifurcation. It does not prove an NVFP4 TP2 sharding or scale semantic bug.
++
++Generation exact match should remain a report item, not the first PASS/FAIL gate. Task 13 K should be evaluated as a TP1/TP2 numerical parity diagnostic before any decision to change NVFP4 emulation math.
+diff --git a/Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_config.py b/Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_config.py
+index 19b930e..f2750b9 100644
+--- a/Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_config.py
++++ b/Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_config.py
+@@ -126,3 +126,17 @@ def test_moe_online_rejects_linear_independent():
+     )
+     with pytest.raises(ValueError, match="Qwen3 MoE"):
+         validate_train_config(cfg)
++
++
++def test_train_cli_dispatches_qwen3_moe_to_lazy_trainer(monkeypatch, tmp_path):
++    from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.cli import train as train_cli
++
++    calls = {}
++    monkeypatch.setattr(train_cli, "_require_cuda", lambda: "cuda")
++    monkeypatch.setattr(
++        train_cli,
++        "train_qwen3_moe_lazy",
++        lambda cfg, device: calls.update({"model_type": cfg.model_type, "device": device}),
++    )
++    train_cli.main(["--output_dir", str(tmp_path), "--end_layer", "0"])
++    assert calls == {"model_type": "qwen3_moe", "device": "cuda"}
+diff --git a/Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_evaluation.py b/Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_evaluation.py
+index ba724bb..ce9392b 100644
+--- a/Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_evaluation.py
++++ b/Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_evaluation.py
+@@ -19,6 +19,9 @@ from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.evalu
+     needs_materialized_checkpoint,
+     vllm_fake_act_for_variant,
+ )
++from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.evaluation.lm_eval_vllm import (
++    build_lm_eval_vllm_kwargs,
++)
+ from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.evaluation.summarize import (
+     structure_preset,
+     summarize_runs,
+@@ -127,8 +130,8 @@ def test_phase_a_best_presets_follow_three_level_rule(tmp_path):
+         }
+     )
+     assert summary["best_fusable_preset"] == "fusable_r64"
+-    assert summary["best_online_preset"] == "online"
+-    assert summary["best_overall_preset"] == "online"
++    assert summary["best_online_preset"] == "online_r64_then_diag"
++    assert summary["best_overall_preset"] == "fusable_r64"
+ 
+ 
+ def test_reasoning_eval_requires_two_gpus():
+@@ -145,13 +148,28 @@ def test_reasoning_eval_requires_two_gpus():
+ 
+ 
+ def test_vllm_fake_act_mapping():
+-    assert vllm_fake_act_for_variant("native_nvfp4") == "nvfp4"
+-    assert vllm_fake_act_for_variant("direct_hif4") == "hif4"
+-    assert vllm_fake_act_for_variant("artifact") == "hif4"
+-    assert needs_materialized_checkpoint("direct_hif4") is False
++    assert vllm_fake_act_for_variant("native_nvfp4") == "none"
++    assert vllm_fake_act_for_variant("direct_hif4") == "none"
++    assert vllm_fake_act_for_variant("artifact") == "none"
++    assert needs_materialized_checkpoint("direct_hif4") is True
+     assert needs_materialized_checkpoint("artifact") is True
+ 
+ 
++def test_lm_eval_vllm_kwargs_native_and_sidecar(tmp_path):
++    sidecar = tmp_path / "hif4_runtime_spec.pt"
++    torch.save({"variant": "fusable"}, sidecar)
++    native = build_lm_eval_vllm_kwargs(model_path="native", native_nvfp4=True)
++    assert native["tensor_parallel_size"] == 2
++    assert native["kv_cache_dtype"] == "bfloat16"
++    assert native["enforce_eager"] is True
++    assert native["linear_backend"] == "emulation"
++    assert native["moe_backend"] == "emulation"
++    converted = build_lm_eval_vllm_kwargs(
++        model_path="converted", hif4_runtime_spec_path=str(sidecar)
++    )
++    assert converted["additional_config"]["hif4_runtime_spec_path"] == str(sidecar)
++
++
+ def test_export_switchable_linear_uses_weight_shape():
+     mod = mock.Mock()
+     mod._mode = "hif4_eval"
+diff --git a/Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_fold_artifact.py b/Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_fold_artifact.py
+index 16c8045..f17ba23 100644
+--- a/Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_fold_artifact.py
++++ b/Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_fold_artifact.py
+@@ -9,6 +9,7 @@ import torch.nn as nn
+ 
+ from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.artifact import (
+     apply_conversion_state,
++    load_conversion_state,
+     save_conversion_artifact,
+ )
+ from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.config import (
+@@ -177,3 +178,24 @@ def test_artifact_roundtrip_restores_z_and_runtime(monkeypatch, tmp_path):
+     assert relative_l2(y1.float(), y0.float()) < 1e-6
+     assert torch.allclose(fresh.model.layers[0].diag_state.z_qkv, torch.full((64,), 0.25))
+ 
++
++def test_moe_artifact_schema_v2_fields_and_complete_layers(tmp_path):
++    cfg = E2ETrainConfig.for_test(output_dir=str(tmp_path))
++    z = {
++        "z_qkv": torch.zeros(2048),
++        "z_vo": torch.zeros(512),
++        "z_gu": torch.zeros(2048),
++        "z_ud": torch.zeros(128, 768),
++    }
++    layer_records = {
++        i: {"accepted": True, "rollback": False, "best_epoch": 0, "z": z}
++        for i in range(48)
++    }
++    path = save_conversion_artifact(cfg=cfg, layer_records=layer_records, out_dir=tmp_path)
++    state = load_conversion_state(path)
++    assert state["schema_version"] == 2
++    assert state["model_type"] == "qwen3_moe"
++    assert state["num_layers"] == 48
++    assert state["num_experts"] == 128
++    assert state["kv_cache_dtype"] == "bfloat16"
++    assert set(state["layers"]) == {str(i) for i in range(48)}
+diff --git a/Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_moe_fold.py b/Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_moe_fold.py
+new file mode 100644
+index 0000000..bee1c34
+--- /dev/null
++++ b/Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_moe_fold.py
+@@ -0,0 +1,156 @@
++from __future__ import annotations
++
++import torch
++
++from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core import moe_semantic_hif4 as moe_mod
++from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.modelopt_moe_checkpoint import (
++    MoEExpertMasterState,
++    MoELayerMasterState,
++    NativeNvfp4LinearMetadata,
++)
++from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.moe_fold import (
++    fold_fusable_moe_layer_state,
++    router_compensation_topk_gate,
++)
++from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.moe_model_spec import (
++    Qwen3MoeModelSpec,
++)
++from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.moe_semantic_hif4 import (
++    MoEFusableDiagState,
++    StudentQwen3MoELayerRuntime,
++    StudentStepCache,
++)
++from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.moe_transforms import (
++    transform_router_weight,
++)
++
++
++def _identity_hif4(monkeypatch) -> None:
++    monkeypatch.setattr(moe_mod, "qdq_hif4_ste_bf16", lambda x: x.to(torch.float32))
++    monkeypatch.setattr(moe_mod, "qdq_hif4_direct", lambda x, output_dtype: x.to(torch.float32))
++
++
++def _meta() -> NativeNvfp4LinearMetadata:
++    return NativeNvfp4LinearMetadata(torch.tensor(1.0), torch.tensor(1.0))
++
++
++def _state() -> MoELayerMasterState:
++    torch.manual_seed(8)
++    spec = Qwen3MoeModelSpec(
++        source_model="synthetic",
++        architecture="Qwen3MoeForCausalLM",
++        model_type="qwen3_moe",
++        hidden_size=2048,
++        num_layers=1,
++        num_attention_heads=32,
++        num_key_value_heads=4,
++        head_dim=128,
++        num_experts=2,
++        top_k=1,
++        moe_intermediate_size=768,
++        decoder_sparse_step=1,
++        mlp_only_layers=(),
++        norm_topk_prob=True,
++    )
++    attention = {
++        "q_proj": torch.randn(4096, 2048) * 0.005,
++        "k_proj": torch.randn(512, 2048) * 0.005,
++        "v_proj": torch.randn(512, 2048) * 0.005,
++        "o_proj": torch.randn(2048, 4096) * 0.005,
++    }
++    experts = [
++        MoEExpertMasterState(
++            gate_proj=torch.randn(768, 2048) * 0.005,
++            up_proj=torch.randn(768, 2048) * 0.005,
++            down_proj=torch.randn(2048, 768) * 0.005,
++            gate_metadata=_meta(),
++            up_metadata=_meta(),
++            down_metadata=_meta(),
++        )
++        for _ in range(2)
++    ]
++    router = torch.zeros(2, 2048, dtype=torch.bfloat16)
++    router[0, 0] = 1
++    router[1, 1] = 1
++    return MoELayerMasterState(
++        layer_idx=0,
++        spec=spec,
++        input_layernorm_weight=torch.ones(2048, dtype=torch.bfloat16),
++        post_attention_layernorm_weight=torch.ones(2048, dtype=torch.bfloat16),
++        q_norm_weight=torch.ones(128, dtype=torch.bfloat16),
++        k_norm_weight=torch.ones(128, dtype=torch.bfloat16),
++        router_weight=router,
++        attention=attention,
++        attention_metadata={k: _meta() for k in attention},
++        experts=experts,
++    )
++
++
++def test_router_fp32_algebra_and_bf16_topk_gate():
++    torch.manual_seed(0)
++    router = torch.randn(8, 2048, dtype=torch.float32) * 0.01
++    hidden = torch.randn(16, 2048, dtype=torch.bfloat16)
++    diag = MoEFusableDiagState()
++    with torch.no_grad():
++        diag.z_gu[::2] = 1.0
++        diag.z_gu[1::2] = -1.0
++    d = diag.d_gu()
++    torch.testing.assert_close(
++        (hidden.float() * d) @ transform_router_weight(router, d).T,
++        hidden.float() @ router.T,
++        rtol=2e-6,
++        atol=2e-6,
++    )
++    stats = router_compensation_topk_gate(hidden, router.to(torch.bfloat16), diag, top_k=2)
++    assert stats["topk_mismatches"] == 0
++    assert stats["max_abs"] >= 0.0
++    assert stats["rel_l2"] >= 0.0
++
++
++def test_fusable_fold_full_layer_no_qdq_equivalence(monkeypatch):
++    _identity_hif4(monkeypatch)
++    state = _state()
++    diag = MoEFusableDiagState()
++    with torch.no_grad():
++        diag.z_qkv.fill_(1.0)
++        diag.z_vo.fill_(-1.0)
++        diag.z_gu.fill_(1.0)
++        diag.z_ud[:2].fill_(-1.0)
++    folded = fold_fusable_moe_layer_state(state, diag, use_r64=False)
++    identity = MoEFusableDiagState()
++    before = StudentQwen3MoELayerRuntime(state, diag, use_r64=False, rot_order="diag_then_rot").eval()
++    after = StudentQwen3MoELayerRuntime(folded, identity, use_r64=False, rot_order="diag_then_rot").eval()
++
++    from transformers.models.qwen3_moe.configuration_qwen3_moe import Qwen3MoeConfig
++    from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeRotaryEmbedding
++
++    config = Qwen3MoeConfig(
++        hidden_size=2048,
++        num_hidden_layers=1,
++        num_attention_heads=32,
++        num_key_value_heads=4,
++        head_dim=128,
++        num_experts=2,
++        num_experts_per_tok=1,
++        moe_intermediate_size=768,
++        norm_topk_prob=True,
++    )
++    x = torch.randn(1, 2, 2048, dtype=torch.bfloat16)
++    rope = Qwen3MoeRotaryEmbedding(config)
++    pos = torch.tensor([[0, 1]])
++    with torch.no_grad():
++        y_before = before(
++            x,
++            attention_mask=None,
++            position_embeddings=rope(x, pos),
++            step_cache=StudentStepCache.new(),
++            use_ste=True,
++        ).output
++        y_after = after(
++            x,
++            attention_mask=None,
++            position_embeddings=rope(x, pos),
++            step_cache=StudentStepCache.new(),
++            use_ste=True,
++        ).output
++    torch.testing.assert_close(y_after.float(), y_before.float(), rtol=2e-2, atol=2e-2)
+diff --git a/Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_moe_materialize.py b/Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_moe_materialize.py
+new file mode 100644
+index 0000000..0871e39
+--- /dev/null
++++ b/Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_moe_materialize.py
+@@ -0,0 +1,74 @@
++from __future__ import annotations
++
++import json
++
++import torch
++from safetensors.torch import save_file
++
++from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.artifact import (
++    save_conversion_artifact,
++)
++from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.config import E2ETrainConfig
++from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.evaluation import moe_materialize
++from Native_NVFP4_HiF4_Linear_Puncture.tests.e2e_diag_reconstruction.test_moe_fold import _state
++
++
++def test_moe_materialize_writes_layer_shard_index_and_sidecar(monkeypatch, tmp_path):
++    source = tmp_path / "source"
++    source.mkdir()
++    (source / "config.json").write_text(
++        json.dumps({"model_type": "qwen3_moe", "quantization_config": {"quant_method": "modelopt"}}),
++        encoding="utf-8",
++    )
++    save_file(
++        {
++            "model.embed_tokens.weight": torch.ones(2, 4, dtype=torch.bfloat16),
++            "model.norm.weight": torch.ones(4, dtype=torch.bfloat16),
++            "lm_head.weight": torch.ones(2, 4, dtype=torch.bfloat16),
++        },
++        source / "non-layer.safetensors",
++    )
++    (source / "model.safetensors.index.json").write_text(
++        json.dumps(
++            {
++                "metadata": {},
++                "weight_map": {
++                    "model.embed_tokens.weight": "non-layer.safetensors",
++                    "model.norm.weight": "non-layer.safetensors",
++                    "lm_head.weight": "non-layer.safetensors",
++                },
++            }
++        ),
++        encoding="utf-8",
++    )
++    cfg = E2ETrainConfig.for_test(output_dir=str(tmp_path / "run"))
++    z = {
++        "z_qkv": torch.zeros(2048),
++        "z_vo": torch.zeros(512),
++        "z_gu": torch.zeros(2048),
++        "z_ud": torch.zeros(2, 768),
++    }
++    artifact = save_conversion_artifact(
++        cfg=cfg,
++        layer_records={0: {"accepted": True, "rollback": False, "best_epoch": 0, "z": z}},
++        out_dir=tmp_path / "run",
++    )
++    monkeypatch.setattr(moe_materialize, "load_qwen3_moe_layer_state", lambda *_args, **_kwargs: _state())
++    monkeypatch.setattr(moe_materialize, "release_qwen3_moe_layer_state", lambda _state: None)
++    out = moe_materialize.materialize_moe_checkpoint(
++        source_snapshot=source,
++        artifact_path=artifact,
++        output_dir=tmp_path / "materialized",
++    )
++    config = json.loads((out / "config.json").read_text(encoding="utf-8"))
++    assert "quantization_config" not in config
++    assert config["torch_dtype"] == "bfloat16"
++    index = json.loads((out / "model.safetensors.index.json").read_text(encoding="utf-8"))
++    assert index["weight_map"]
++    assert index["weight_map"]["model.embed_tokens.weight"] == "model-non-layer.safetensors"
++    assert index["weight_map"]["model.norm.weight"] == "model-non-layer.safetensors"
++    assert index["weight_map"]["lm_head.weight"] == "model-non-layer.safetensors"
++    assert all(not key.endswith((".weight_scale", ".weight_scale_2", ".input_scale")) for key in index["weight_map"])
++    sidecar = torch.load(out / "hif4_runtime_spec.pt", map_location="cpu", weights_only=False)
++    assert sidecar["model_type"] == "qwen3_moe"
++    assert sidecar["variant"] == "fusable"
+diff --git a/Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_moe_native_teacher.py b/Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_moe_native_teacher.py
+index a089b70..7a3fea0 100644
+--- a/Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_moe_native_teacher.py
++++ b/Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_moe_native_teacher.py
+@@ -1,23 +1,83 @@
+ from __future__ import annotations
+ 
+-import torch
++import json
++from pathlib import Path
++
+ import pytest
+-from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeRotaryEmbedding
++import torch
++import torch.nn.functional as F
++from safetensors import safe_open
+ 
+ from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.modelopt_moe_checkpoint import (
+     load_qwen3_moe_layer_state,
+     release_qwen3_moe_layer_state,
+ )
+ from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.moe_model_spec import QWEN3_30B_A3B_NVFP4
+-from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.moe_semantic_hif4 import qdq_native_nvfp4
+ from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.moe_semantic_hif4 import (
+     NativeQwen3MoELayerRuntime,
+-    qwen3_moe_config_from_snapshot,
++    qdq_native_nvfp4,
++)
++from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.training.moe_layer_runtime import (
++    build_qwen3_moe_layer_call,
++    call_native_qwen3_moe_layer,
+ )
+ from Native_NVFP4_HiF4_Linear_Puncture.src.checkpoint import resolve_local_snapshot
+ from vllm.model_executor.layers.quantization.utils.nvfp4_emulation_utils import ref_nvfp4_quant_dequant
+ 
+ 
++DENSE_ATOL = 0.0
++DENSE_RTOL = 0.0
++MOE_ATOL = 0.05
++MOE_RTOL = 0.01
++
++
++def _load_keys(snapshot: Path, keys: list[str]) -> dict[str, torch.Tensor]:
++    index = json.loads((snapshot / "model.safetensors.index.json").read_text(encoding="utf-8"))
++    by_shard: dict[str, list[str]] = {}
++    for key in keys:
++        by_shard.setdefault(index["weight_map"][key], []).append(key)
++    out: dict[str, torch.Tensor] = {}
++    for shard, shard_keys in by_shard.items():
++        with safe_open(str(snapshot / shard), framework="pt", device="cpu") as handle:
++            for key in shard_keys:
++                out[key] = handle.get_tensor(key)
++    return out
++
++
++def _vllm_dense_emulation(
++    x: torch.Tensor,
++    packed_weight: torch.Tensor,
++    weight_scale: torch.Tensor,
++    input_global_scale_inv: torch.Tensor,
++    weight_global_scale: torch.Tensor,
++) -> torch.Tensor:
++    from torch.nn.parameter import Parameter
++
++    from vllm.config import VllmConfig, set_current_vllm_config
++    from vllm.config.kernel import KernelConfig
++    from vllm.model_executor.kernels.linear.nvfp4.emulation import EmulationNvFp4LinearKernel
++    from vllm.model_executor.kernels.linear.nvfp4.select import init_nvfp4_linear_kernel
++
++    with set_current_vllm_config(
++        VllmConfig(kernel_config=KernelConfig(linear_backend="emulation"))
++    ):
++        kernel = init_nvfp4_linear_kernel()
++        assert isinstance(kernel, EmulationNvFp4LinearKernel)
++        layer = torch.nn.Module()
++        layer.weight = Parameter(packed_weight.to(x.device), requires_grad=False)
++        layer.weight_scale = Parameter(weight_scale.to(x.device), requires_grad=False)
++        layer.input_global_scale_inv = Parameter(
++            input_global_scale_inv.to(device=x.device, dtype=torch.float32).reshape(()),
++            requires_grad=False,
++        )
++        layer.weight_global_scale = Parameter(
++            weight_global_scale.to(device=x.device, dtype=torch.float32).reshape(()),
++            requires_grad=False,
++        )
++        kernel.process_weights_after_loading(layer)
++        return kernel.apply_weights(layer, x, bias=None)
++
++
+ def test_native_activation_qdq_is_vllm_emulation():
+     torch.manual_seed(7)
+     x = torch.randn(3, 32, dtype=torch.bfloat16)
+@@ -27,18 +87,197 @@ def test_native_activation_qdq_is_vllm_emulation():
+     torch.testing.assert_close(got, expected, rtol=0.0, atol=0.0)
+ 
+ 
++@pytest.mark.skipif(not torch.cuda.is_available(), reason="real native teacher gates require CUDA")
++def test_native_attention_projections_match_vllm_emulation_puncture():
++    from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.moe_semantic_hif4 import _rms_norm
++
++    snapshot = Path(resolve_local_snapshot(QWEN3_30B_A3B_NVFP4))
++    state = load_qwen3_moe_layer_state(snapshot, 0, "cuda")
++    try:
++        runtime = NativeQwen3MoELayerRuntime(state).cuda().eval()
++        torch.manual_seed(0)
++        x = torch.randn(1, 2, 2048, device="cuda", dtype=torch.bfloat16)
++        call = build_qwen3_moe_layer_call(str(snapshot), x)
++        with torch.no_grad():
++            attn_input = _rms_norm(x, state.input_layernorm_weight, runtime.rms_norm_eps)
++            got = runtime.attention_projections(attn_input, None, call.position_embeddings)
++
++        prefixes = {proj: f"model.layers.0.self_attn.{proj}" for proj in ("q_proj", "k_proj", "v_proj", "o_proj")}
++        keys = [f"{prefix}.{suffix}" for prefix in prefixes.values() for suffix in ("weight", "weight_scale", "weight_scale_2", "input_scale")]
++        tensors = _load_keys(snapshot, keys)
++        qkv_input = torch.stack([tensors[f"{prefixes[p]}.input_scale"].reshape(()).float() for p in ("q_proj", "k_proj", "v_proj")]).max()
++        qkv_weight = torch.stack([tensors[f"{prefixes[p]}.weight_scale_2"].reshape(()).float() for p in ("q_proj", "k_proj", "v_proj")]).max()
++        flat = attn_input.reshape(-1, attn_input.shape[-1])
++        for proj, observed in (("q_proj", got.q), ("k_proj", got.k), ("v_proj", got.v)):
++            prefix = prefixes[proj]
++            expected = _vllm_dense_emulation(
++                flat,
++                tensors[f"{prefix}.weight"],
++                tensors[f"{prefix}.weight_scale"],
++                1.0 / qkv_input,
++                qkv_weight,
++            ).reshape_as(observed)
++            torch.testing.assert_close(observed, expected, atol=DENSE_ATOL, rtol=DENSE_RTOL)
++
++        prefix = prefixes["o_proj"]
++        expected_o = _vllm_dense_emulation(
++            got.o_input.reshape(-1, got.o_input.shape[-1]),
++            tensors[f"{prefix}.weight"],
++            tensors[f"{prefix}.weight_scale"],
++            1.0 / tensors[f"{prefix}.input_scale"].reshape(()).float(),
++            tensors[f"{prefix}.weight_scale_2"].reshape(()).float(),
++        ).reshape_as(got.o)
++        torch.testing.assert_close(got.o, expected_o, atol=DENSE_ATOL, rtol=DENSE_RTOL)
++    finally:
++        release_qwen3_moe_layer_state(state)
++
++
++@pytest.mark.skipif(not torch.cuda.is_available(), reason="real native teacher gates require CUDA")
++def test_native_router_logits_and_topk_match_hf_reference():
++    snapshot = Path(resolve_local_snapshot(QWEN3_30B_A3B_NVFP4))
++    state = load_qwen3_moe_layer_state(snapshot, 0, "cuda")
++    try:
++        runtime = NativeQwen3MoELayerRuntime(state).cuda().eval()
++        torch.manual_seed(1)
++        x = torch.randn(1, 4, 2048, device="cuda", dtype=torch.bfloat16)
++        with torch.no_grad():
++            got = runtime.routed_moe(x)
++            flat = x.reshape(-1, x.shape[-1])
++            logits = F.linear(flat, state.router_weight)
++            probs = torch.softmax(logits, dtype=torch.float32, dim=-1)
++            weights, indices = torch.topk(probs, state.spec.top_k, dim=-1)
++            weights = (weights / weights.sum(dim=-1, keepdim=True)).to(logits.dtype)
++        torch.testing.assert_close(got.router_logits, logits, atol=0.0, rtol=0.0)
++        torch.testing.assert_close(got.routing_weights, weights, atol=0.0, rtol=0.0)
++        assert torch.equal(got.selected_experts, indices)
++    finally:
++        release_qwen3_moe_layer_state(state)
++
++
++@pytest.mark.skipif(not torch.cuda.is_available(), reason="real native teacher gates require CUDA")
++def test_native_routed_moe_output_matches_vllm_emulation_puncture():
++    from vllm.model_executor.layers.fused_moe.activation import MoEActivation
++    from vllm.model_executor.layers.fused_moe.config import (
++        FusedMoEConfig,
++        FusedMoEParallelConfig,
++        RoutingMethodType,
++        nvfp4_moe_quant_config,
++    )
++    from vllm.model_executor.layers.fused_moe.experts.nvfp4_emulation_moe import (
++        Nvfp4QuantizationEmulationTritonExperts,
++    )
++
++    snapshot = Path(resolve_local_snapshot(QWEN3_30B_A3B_NVFP4))
++    state = load_qwen3_moe_layer_state(snapshot, 0, "cuda")
++    try:
++        runtime = NativeQwen3MoELayerRuntime(state).cuda().eval()
++        torch.manual_seed(2)
++        x = torch.randn(1, 4, 2048, device="cuda", dtype=torch.bfloat16)
++        with torch.no_grad():
++            got = runtime.routed_moe(x)
++
++        keys: list[str] = []
++        for expert in range(state.spec.num_experts):
++            base = f"model.layers.0.mlp.experts.{expert}"
++            for proj in ("gate_proj", "up_proj", "down_proj"):
++                for suffix in ("weight", "weight_scale", "weight_scale_2", "input_scale"):
++                    keys.append(f"{base}.{proj}.{suffix}")
++        tensors = _load_keys(snapshot, keys)
++
++        w1, w1_scale, w1_gscale = [], [], []
++        w2, w2_scale, w2_gscale = [], [], []
++        a13_scales, a2_scales = [], []
++        for expert in range(state.spec.num_experts):
++            base = f"model.layers.0.mlp.experts.{expert}"
++            gate = f"{base}.gate_proj"
++            up = f"{base}.up_proj"
++            down = f"{base}.down_proj"
++            w1.append(torch.cat([tensors[f"{gate}.weight"], tensors[f"{up}.weight"]], dim=0))
++            w1_scale.append(torch.cat([tensors[f"{gate}.weight_scale"], tensors[f"{up}.weight_scale"]], dim=0))
++            w1_gscale.append(tensors[f"{gate}.weight_scale_2"].reshape(()).float())
++            w2.append(tensors[f"{down}.weight"])
++            w2_scale.append(tensors[f"{down}.weight_scale"])
++            w2_gscale.append(tensors[f"{down}.weight_scale_2"].reshape(()).float())
++            a13_scales.extend([
++                tensors[f"{gate}.input_scale"].reshape(()).float(),
++                tensors[f"{up}.input_scale"].reshape(()).float(),
++            ])
++            a2_scales.append(tensors[f"{down}.input_scale"].reshape(()).float())
++
++        w1_t = torch.stack(w1).cuda()
++        w1_scale_t = torch.stack(w1_scale).cuda()
++        w1_gscale_t = torch.stack(w1_gscale).cuda()
++        w2_t = torch.stack(w2).cuda()
++        w2_scale_t = torch.stack(w2_scale).cuda()
++        w2_gscale_t = torch.stack(w2_gscale).cuda()
++        a1_gscale = (1.0 / torch.stack(a13_scales).max()).cuda()
++        a2_gscale = (1.0 / torch.stack(a2_scales).max()).cuda()
++
++        moe_config = FusedMoEConfig(
++            num_experts=state.spec.num_experts,
++            experts_per_token=state.spec.top_k,
++            hidden_dim=state.spec.hidden_size,
++            intermediate_size_per_partition=state.spec.moe_intermediate_size,
++            num_local_experts=state.spec.num_experts,
++            num_logical_experts=state.spec.num_experts,
++            moe_parallel_config=FusedMoEParallelConfig.make_no_parallel(),
++            activation=MoEActivation.SILU,
++            in_dtype=torch.bfloat16,
++            device="cuda",
++            routing_method=RoutingMethodType.TopK,
++            moe_backend="emulation",
++        )
++        experts = Nvfp4QuantizationEmulationTritonExperts(
++            moe_config=moe_config,
++            quant_config=nvfp4_moe_quant_config(
++                g1_alphas=w1_gscale_t,
++                g2_alphas=w2_gscale_t,
++                a1_gscale=a1_gscale,
++                a2_gscale=a2_gscale,
++                w1_scale=w1_scale_t,
++                w2_scale=w2_scale_t,
++            ),
++        )
++        flat = x.reshape(-1, x.shape[-1])
++        output = torch.zeros_like(flat)
++        ws13 = torch.zeros(
++            flat.shape[0] * state.spec.top_k * max(state.spec.moe_intermediate_size, state.spec.hidden_size),
++            dtype=torch.bfloat16,
++            device="cuda",
++        )
++        ws2 = torch.zeros_like(ws13)
++        experts.apply(
++            output=output,
++            hidden_states=flat,
++            w1=w1_t,
++            w2=w2_t,
++            topk_weights=got.routing_weights.reshape(flat.shape[0], state.spec.top_k),
++            topk_ids=got.selected_experts.reshape(flat.shape[0], state.spec.top_k).to(torch.int32),
++            activation=MoEActivation.SILU,
++            global_num_experts=state.spec.num_experts,
++            expert_map=None,
++            a1q_scale=None,
++            a2_scale=None,
++            workspace13=ws13,
++            workspace2=ws2,
++            expert_tokens_meta=None,
++            apply_router_weight_on_input=False,
++        )
++        torch.testing.assert_close(got.output.reshape_as(output), output, atol=MOE_ATOL, rtol=MOE_RTOL)
++    finally:
++        release_qwen3_moe_layer_state(state)
++
++
+ @pytest.mark.skipif(not torch.cuda.is_available(), reason="native MoE runtime smoke requires CUDA")
+ def test_native_moe_layer_runtime_smoke():
+-    snapshot = resolve_local_snapshot(QWEN3_30B_A3B_NVFP4)
++    snapshot = Path(resolve_local_snapshot(QWEN3_30B_A3B_NVFP4))
+     state = load_qwen3_moe_layer_state(snapshot, 0, "cuda")
+     try:
+         runtime = NativeQwen3MoELayerRuntime(state).cuda().eval()
+-        config = qwen3_moe_config_from_snapshot(snapshot)
+-        rope = Qwen3MoeRotaryEmbedding(config).cuda()
+         x = torch.randn(1, 2, 2048, device="cuda", dtype=torch.bfloat16)
+-        positions = torch.tensor([[0, 1]], device="cuda")
++        call = build_qwen3_moe_layer_call(str(snapshot), x)
+         with torch.no_grad():
+-            result = runtime(x, attention_mask=None, position_embeddings=rope(x, positions))
++            result = call_native_qwen3_moe_layer(runtime, call)
+         assert result.output.shape == x.shape
+         assert result.router_logits.shape == (2, 128)
+         assert result.selected_experts.shape == (2, 8)
+diff --git a/Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_moe_semantic_hif4.py b/Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_moe_semantic_hif4.py
+new file mode 100644
+index 0000000..a2f42a8
+--- /dev/null
++++ b/Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_moe_semantic_hif4.py
+@@ -0,0 +1,276 @@
++from __future__ import annotations
++
++import torch
++
++from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core import moe_semantic_hif4 as moe_mod
++from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.modelopt_moe_checkpoint import (
++    MoEExpertMasterState,
++    MoELayerMasterState,
++    NativeNvfp4LinearMetadata,
++)
++from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.moe_model_spec import (
++    Qwen3MoeModelSpec,
++)
++from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.moe_semantic_hif4 import (
++    MoEFusableDiagState,
++    MoEOnlineDiagState,
++    StudentQwen3MoELayerRuntime,
++    StudentStepCache,
++    build_moe_diag_state,
++    forward_student_attention_proj,
++    forward_student_expert_proj,
++    forward_student_routed_moe,
++    summarize_expert_coverage,
++)
++from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.moe_transforms import (
++    apply_r64_no_cross_head,
++    fusable_weight_transform_no_h,
++    online_weight_transform_no_h,
++)
++
++
++def _identity_hif4(monkeypatch) -> None:
++    monkeypatch.setattr(moe_mod, "qdq_hif4_ste_bf16", lambda x: x.to(torch.float32))
++    monkeypatch.setattr(moe_mod, "qdq_hif4_direct", lambda x, output_dtype: x.to(torch.float32))
++
++
++def _spec(hidden: int, experts: int, top_k: int, intermediate: int, heads: int = 1, kv_heads: int = 1, head_dim: int | None = None) -> Qwen3MoeModelSpec:
++    hd = head_dim if head_dim is not None else hidden // heads
++    return Qwen3MoeModelSpec(
++        source_model="synthetic",
++        architecture="Qwen3MoeForCausalLM",
++        model_type="qwen3_moe",
++        hidden_size=hidden,
++        num_layers=1,
++        num_attention_heads=heads,
++        num_key_value_heads=kv_heads,
++        head_dim=hd,
++        num_experts=experts,
++        top_k=top_k,
++        moe_intermediate_size=intermediate,
++        decoder_sparse_step=1,
++        mlp_only_layers=(),
++        norm_topk_prob=True,
++    )
++
++
++def _meta() -> NativeNvfp4LinearMetadata:
++    return NativeNvfp4LinearMetadata(torch.tensor(1.0), torch.tensor(1.0))
++
++
++def _synthetic_state(
++    *,
++    hidden: int = 64,
++    experts: int = 3,
++    top_k: int = 2,
++    intermediate: int = 32,
++    heads: int = 1,
++    kv_heads: int = 1,
++    head_dim: int | None = None,
++) -> MoELayerMasterState:
++    torch.manual_seed(123)
++    spec = _spec(hidden, experts, top_k, intermediate, heads, kv_heads, head_dim)
++    q_out = spec.num_attention_heads * spec.head_dim
++    kv_out = spec.num_key_value_heads * spec.head_dim
++    attention = {
++        "q_proj": torch.randn(q_out, hidden) * 0.02,
++        "k_proj": torch.randn(kv_out, hidden) * 0.02,
++        "v_proj": torch.randn(kv_out, hidden) * 0.02,
++        "o_proj": torch.randn(hidden, q_out) * 0.02,
++    }
++    expert_states = [
++        MoEExpertMasterState(
++            gate_proj=torch.randn(intermediate, hidden) * 0.02,
++            up_proj=torch.randn(intermediate, hidden) * 0.02,
++            down_proj=torch.randn(hidden, intermediate) * 0.02,
++            gate_metadata=_meta(),
++            up_metadata=_meta(),
++            down_metadata=_meta(),
++        )
++        for _ in range(experts)
++    ]
++    return MoELayerMasterState(
++        layer_idx=0,
++        spec=spec,
++        input_layernorm_weight=torch.ones(hidden, dtype=torch.bfloat16),
++        post_attention_layernorm_weight=torch.ones(hidden, dtype=torch.bfloat16),
++        q_norm_weight=torch.ones(spec.head_dim, dtype=torch.bfloat16),
++        k_norm_weight=torch.ones(spec.head_dim, dtype=torch.bfloat16),
++        router_weight=torch.zeros(experts, hidden, dtype=torch.bfloat16),
++        attention=attention,
++        attention_metadata={name: _meta() for name in attention},
++        experts=expert_states,
++    )
++
++
++def test_moe_diag_state_shapes_identity_snapshot_and_clamp():
++    spec = _spec(2048, 128, 8, 768, heads=32, kv_heads=4, head_dim=128)
++    fusable = build_moe_diag_state(spec, "fusable")
++    assert isinstance(fusable, MoEFusableDiagState)
++    assert fusable.z_qkv.shape == (2048,)
++    assert fusable.z_vo.shape == (512,)
++    assert fusable.z_gu.shape == (2048,)
++    assert fusable.z_ud.shape == (128, 768)
++    assert all(p.requires_grad for p in fusable.parameters())
++    snap = fusable.snapshot()
++    assert all(torch.equal(v, torch.zeros_like(v)) for v in snap.values())
++    with torch.no_grad():
++        fusable.z_qkv.fill_(9.0)
++    fusable.clamp_log2_((-4.0, 4.0))
++    assert float(fusable.z_qkv.max()) == 4.0
++    fusable.load_snapshot(snap)
++    assert torch.equal(fusable.z_qkv, torch.zeros_like(fusable.z_qkv))
++
++    online = build_moe_diag_state(spec, "online")
++    assert isinstance(online, MoEOnlineDiagState)
++    assert online.z_q.shape == (2048,)
++    assert online.z_o.shape == (4096,)
++    assert online.z_gate.shape == (128, 2048)
++    assert online.z_down.shape == (128, 768)
++    assert not (set(fusable.snapshot()) & {"z_q", "z_gate", "z_down"})
++
++
++def test_student_attention_proj_fusable_and_online_match_no_quant_math(monkeypatch):
++    _identity_hif4(monkeypatch)
++    torch.manual_seed(0)
++    x = torch.randn(3, 64, dtype=torch.bfloat16)
++    weight = torch.randn(32, 64)
++    cache = StudentStepCache.new()
++    fusable = MoEFusableDiagState(hidden_size=64, num_experts=2, moe_intermediate_size=32, num_key_value_heads=1, head_dim=64)
++    with torch.no_grad():
++        fusable.z_qkv.copy_(torch.linspace(-0.2, 0.2, 64))
++    got = forward_student_attention_proj(
++        "q_proj", x, weight, fusable, use_r64=True, rot_order="diag_then_rot", step_cache=cache
++    )
++    d = fusable.d_qkv()
++    expected = apply_r64_no_cross_head(x.float() * d) @ fusable_weight_transform_no_h(
++        weight, d, torch.ones(32), use_r64=True
++    ).T
++    torch.testing.assert_close(got.float(), expected, rtol=3e-3, atol=2e-2)
++    assert cache.weight_qdq_calls_by_proj["q_proj"] == 1
++
++    cache = StudentStepCache.new()
++    online = MoEOnlineDiagState(hidden_size=64, num_experts=2, moe_intermediate_size=32, o_input_size=64)
++    with torch.no_grad():
++        online.z_q.copy_(torch.linspace(-0.2, 0.2, 64))
++    got = forward_student_attention_proj(
++        "q_proj", x, weight, online, use_r64=True, rot_order="rot_then_diag", step_cache=cache
++    )
++    d = online.d_for("q_proj")
++    expected = (apply_r64_no_cross_head(x.float()) * d) @ online_weight_transform_no_h(
++        weight, d, use_r64=True, rot_order="rot_then_diag"
++    ).T
++    torch.testing.assert_close(got.float(), expected, rtol=3e-3, atol=2e-2)
++
++
++def test_routed_expert_student_qdq_once_for_repeated_expert_tokens(monkeypatch):
++    _identity_hif4(monkeypatch)
++    state = _synthetic_state()
++    diag_state = MoEFusableDiagState(hidden_size=64, num_experts=3, moe_intermediate_size=32, num_key_value_heads=1, head_dim=64)
++    # Router logits tie, so torch.topk selects the same two experts for every token.
++    x = torch.randn(5, 64, dtype=torch.bfloat16)
++    cache = StudentStepCache.new()
++    out = forward_student_routed_moe(
++        x,
++        state,
++        diag_state,
++        use_r64=False,
++        rot_order="diag_then_rot",
++        step_cache=cache,
++    )
++    assert out.output.shape == x.shape
++    assert int((out.per_expert_routed_token_count > 0).sum().item()) == 2
++    assert cache.weight_qdq_calls_by_proj == {
++        "gate_proj": 2,
++        "up_proj": 2,
++        "down_proj": 2,
++    }
++    cache.clear()
++    assert cache.transformed_weight_qdq == {}
++
++
++def test_student_expert_proj_fusable_and_online_match_no_quant_math(monkeypatch):
++    _identity_hif4(monkeypatch)
++    torch.manual_seed(4)
++    x = torch.randn(3, 64, dtype=torch.bfloat16)
++    weight = torch.randn(32, 64)
++    fusable = MoEFusableDiagState(hidden_size=64, num_experts=2, moe_intermediate_size=32, num_key_value_heads=1, head_dim=64)
++    with torch.no_grad():
++        fusable.z_gu.copy_(torch.linspace(-0.2, 0.2, 64))
++    cache = StudentStepCache.new()
++    got = forward_student_expert_proj(
++        "gate_proj", 0, x, weight, fusable, use_r64=True, rot_order="diag_then_rot", step_cache=cache
++    )
++    d = fusable.d_gu()
++    expected = apply_r64_no_cross_head(x.float() * d) @ fusable_weight_transform_no_h(
++        weight, d, torch.ones(32), use_r64=True
++    ).T
++    torch.testing.assert_close(got.float(), expected, rtol=3e-3, atol=2e-2)
++
++    online = MoEOnlineDiagState(hidden_size=64, num_experts=2, moe_intermediate_size=32, o_input_size=64)
++    with torch.no_grad():
++        online.z_gate[1].copy_(torch.linspace(-0.2, 0.2, 64))
++    cache = StudentStepCache.new()
++    got = forward_student_expert_proj(
++        "gate_proj", 1, x, weight, online, use_r64=True, rot_order="diag_then_rot", step_cache=cache
++    )
++    d = online.d_for("gate_proj", 1)
++    expected = apply_r64_no_cross_head(x.float() * d) @ online_weight_transform_no_h(
++        weight, d, use_r64=True, rot_order="diag_then_rot"
++    ).T
++    torch.testing.assert_close(got.float(), expected, rtol=3e-3, atol=2e-2)
++
++
++def test_full_current_layer_student_forward_smoke_and_coverage(monkeypatch):
++    _identity_hif4(monkeypatch)
++    state = _synthetic_state(
++        hidden=2048,
++        experts=2,
++        top_k=1,
++        intermediate=768,
++        heads=32,
++        kv_heads=4,
++        head_dim=128,
++    )
++    diag_state = MoEFusableDiagState()
++    runtime = StudentQwen3MoELayerRuntime(
++        state,
++        diag_state,
++        use_r64=False,
++        rot_order="diag_then_rot",
++    ).eval()
++    x = torch.randn(1, 2, 2048, dtype=torch.bfloat16)
++    from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeRotaryEmbedding
++    from transformers.models.qwen3_moe.configuration_qwen3_moe import Qwen3MoeConfig
++
++    config = Qwen3MoeConfig(
++        hidden_size=2048,
++        num_hidden_layers=1,
++        num_attention_heads=32,
++        num_key_value_heads=4,
++        head_dim=128,
++        num_experts=2,
++        num_experts_per_tok=1,
++        moe_intermediate_size=768,
++        norm_topk_prob=True,
++    )
++    rope = Qwen3MoeRotaryEmbedding(config)
++    positions = torch.tensor([[0, 1]])
++    cache = StudentStepCache.new()
++    with torch.no_grad():
++        out = runtime(
++            x,
++            attention_mask=None,
++            position_embeddings=rope(x, positions),
++            step_cache=cache,
++            use_ste=True,
++        )
++    assert out.output.shape == x.shape
++    stats = summarize_expert_coverage(
++        train_counts=out.per_expert_routed_token_count,
++        val_counts=torch.zeros_like(out.per_expert_routed_token_count),
++        step_cache=cache,
++    )
++    assert stats.weight_qdq_calls_by_proj["q_proj"] == 1
++    assert stats.max_routed_tokens >= stats.min_routed_tokens
++    assert set(stats.never_routed_experts).issubset({0, 1})
+diff --git a/Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_moe_vllm_runtime.py b/Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_moe_vllm_runtime.py
+new file mode 100644
+index 0000000..d80ad47
+--- /dev/null
++++ b/Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_moe_vllm_runtime.py
+@@ -0,0 +1,113 @@
++from __future__ import annotations
++
++import torch
++
++
++def test_hif4_runtime_sidecar_cache_and_dense_hook(monkeypatch, tmp_path):
++    from vllm.config import VllmConfig, set_current_vllm_config
++    from vllm.model_executor.layers.quantization import hif4_runtime
++
++    sidecar = tmp_path / "hif4_runtime_spec.pt"
++    trace = tmp_path / "trace.jsonl"
++    torch.save({"model_type": "qwen3_moe", "variant": "direct"}, sidecar)
++    hif4_runtime._SIDECAR_CACHE.clear()
++    hif4_runtime._TRACE_SEEN.clear()
++    monkeypatch.setenv("HIF4_RUNTIME_TRACE_JSONL", str(trace))
++    calls = {"n": 0}
++
++    def fake_quant(x):
++        calls["n"] += 1
++        return x + 1
++
++    monkeypatch.setattr(
++        "vllm.model_executor.layers.quantization.hif4_fake.hif4_fake_quantize_hifx4",
++        fake_quant,
++    )
++    with set_current_vllm_config(
++        VllmConfig(additional_config={"hif4_runtime_spec_path": str(sidecar)})
++    ):
++        x = torch.zeros(2, 4)
++        y = hif4_runtime.apply_dense_hif4_runtime("model.layers.0.self_attn.q_proj", x)
++        z = hif4_runtime.apply_dense_hif4_runtime("model.layers.0.self_attn.k_proj", x)
++    assert torch.equal(y, torch.ones_like(x))
++    assert torch.equal(z, torch.ones_like(x))
++    assert calls["n"] == 2
++    assert list(hif4_runtime._SIDECAR_CACHE) == [str(sidecar)]
++    trace_text = trace.read_text()
++    assert '"event": "sidecar_load"' in trace_text
++    assert '"event": "dense_apply"' in trace_text
++
++
++def test_hif4_runtime_absent_sidecar_is_noop():
++    from vllm.config import VllmConfig, set_current_vllm_config
++    from vllm.model_executor.layers.quantization import hif4_runtime
++
++    x = torch.randn(2, 4)
++    with set_current_vllm_config(VllmConfig(additional_config={})):
++        y = hif4_runtime.apply_dense_hif4_runtime("model.layers.0.self_attn.q_proj", x)
++    assert y is x
++
++
++def test_hif4_fused_moe_matches_manual_reference(monkeypatch):
++    from vllm.model_executor.layers.fused_moe.experts.hif4_emulation_moe import (
++        apply_hif4_fused_moe,
++    )
++
++    monkeypatch.setattr(
++        "vllm.model_executor.layers.quantization.hif4_fake.hif4_fake_quantize_hifx4",
++        lambda x: x,
++    )
++    for experts in (2, 8, 128):
++        torch.manual_seed(experts)
++        hidden = torch.randn(4, 16, dtype=torch.bfloat16)
++        w13 = torch.randn(experts, 24, 16, dtype=torch.bfloat16) * 0.01
++        w2 = torch.randn(experts, 16, 12, dtype=torch.bfloat16) * 0.01
++        topk_ids = torch.tensor([[0, 0], [min(1, experts - 1), 0], [experts - 1, 0], [0, min(1, experts - 1)]])
++        topk_weights = torch.full((4, 2), 0.5, dtype=torch.float32)
++        got = apply_hif4_fused_moe(hidden, w13, w2, topk_weights, topk_ids)
++        ref = torch.zeros_like(hidden)
++        for t in range(hidden.shape[0]):
++            acc = torch.zeros(16)
++            for k in range(2):
++                e = int(topk_ids[t, k])
++                gu = torch.nn.functional.linear(hidden[t], w13[e])
++                gate, up = gu.chunk(2, dim=-1)
++                down = torch.nn.functional.linear(torch.nn.functional.silu(gate) * up, w2[e])
++                acc += down.float() * 0.5
++            ref[t] = acc.to(ref.dtype)
++        torch.testing.assert_close(got, ref, atol=0.0, rtol=0.0)
++
++
++def test_hif4_online_reference_moe_matches_manual_reference(monkeypatch):
++    from vllm.model_executor.layers.fused_moe.experts.hif4_online_reference_moe import (
++        apply_hif4_online_reference_moe,
++    )
++
++    monkeypatch.setattr(
++        "vllm.model_executor.layers.quantization.hif4_fake.hif4_fake_quantize_hifx4",
++        lambda x: x,
++    )
++    torch.manual_seed(0)
++    hidden = torch.randn(3, 16, dtype=torch.bfloat16)
++    gate = torch.randn(4, 12, 16, dtype=torch.bfloat16) * 0.01
++    up = torch.randn(4, 12, 16, dtype=torch.bfloat16) * 0.01
++    down = torch.randn(4, 16, 12, dtype=torch.bfloat16) * 0.01
++    z_gate = torch.zeros(4, 16)
++    z_up = torch.zeros(4, 16)
++    z_down = torch.zeros(4, 12)
++    topk_ids = torch.tensor([[0, 1], [1, 1], [3, 0]])
++    topk_weights = torch.tensor([[0.25, 0.75], [0.5, 0.5], [1.0, 0.0]])
++    got = apply_hif4_online_reference_moe(
++        hidden, gate, up, down, topk_weights, topk_ids, z_gate, z_up, z_down
++    )
++    ref = torch.zeros_like(hidden)
++    for t in range(hidden.shape[0]):
++        acc = torch.zeros(16)
++        for k in range(2):
++            e = int(topk_ids[t, k])
++            g = torch.nn.functional.linear(hidden[t], gate[e])
++            u = torch.nn.functional.linear(hidden[t], up[e])
++            d = torch.nn.functional.linear(torch.nn.functional.silu(g) * u, down[e])
++            acc += d.float() * float(topk_weights[t, k])
++        ref[t] = acc.to(ref.dtype)
++    torch.testing.assert_close(got, ref, atol=0.0, rtol=0.0)
+diff --git a/main.py b/main.py
+index 721d357..fe57857 100644
+--- a/main.py
++++ b/main.py
+@@ -335,6 +335,12 @@ def parse_args():
+         default="auto",
+         help="传给 vLLM：kv_cache_dtype（如 auto / bfloat16 / fp8 / fp8_e4m3 / fp8_e5m2）。默认 auto。",
+     )
++    parser.add_argument(
++        "--hif4_runtime_spec",
++        type=str,
++        default="",
++        help="HiF4 runtime sidecar 路径，通过 vLLM additional_config 传给 worker。",
++    )
+     parser.add_argument(
+         "--fake_act_quant",
+         choices=["none", "hif4", "nvfp4", "hif4-1"],
+@@ -534,6 +540,8 @@ def main():
+         ),
+     )
+     additional_config = {}
++    if args.hif4_runtime_spec:
++        additional_config["hif4_runtime_spec_path"] = args.hif4_runtime_spec
+     if args.fake_act_quant != "none":
+         additional_config["fake_act_quant"] = args.fake_act_quant
+         exclude_list = [

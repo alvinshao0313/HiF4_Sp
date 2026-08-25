@@ -59,6 +59,15 @@ class UnquantizedFusedMoEMethod(FusedMoEMethodBase, CustomOp):
 
     def __init__(self, moe: FusedMoEConfig):
         super().__init__(moe)
+        from vllm.config import get_current_vllm_config_or_none
+
+        vllm_config = get_current_vllm_config_or_none()
+        additional_config = (
+            getattr(vllm_config, "additional_config", {})
+            if vllm_config is not None
+            else {}
+        ) or {}
+        self.hif4_runtime_spec_path = additional_config.get("hif4_runtime_spec_path")
         self.unquantized_backend = select_unquantized_moe_backend(
             moe_config=self.moe,
             use_ep=self.moe.moe_parallel_config.use_ep,
@@ -298,6 +307,17 @@ class UnquantizedFusedMoEMethod(FusedMoEMethodBase, CustomOp):
         topk_ids: torch.Tensor,
         shared_experts_input: torch.Tensor | None,
     ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+        from vllm.model_executor.layers.quantization import hif4_runtime
+
+        spec = hif4_runtime.current_hif4_runtime_spec(self.hif4_runtime_spec_path)
+        if spec is not None:
+            if spec.get("variant") in {"direct", "fusable", "r64", "fusable_r64"}:
+                from vllm.model_executor.layers.fused_moe.experts.hif4_emulation_moe import (
+                    apply_hif4_fused_moe,
+                )
+
+                hif4_runtime.trace_hif4_runtime_event("moe_apply", variant=spec.get("variant"))
+                return apply_hif4_fused_moe(x, layer.w13_weight, layer.w2_weight, topk_weights, topk_ids)
         return self.forward(
             layer=layer,
             x=x,

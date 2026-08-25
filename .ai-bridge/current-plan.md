@@ -1,19 +1,24 @@
-# Backport vLLM NVFP4 emulation
+# Resume Qwen3-30B MoE HiF4 implementation
 
-Updated: 2026-08-21T02:22:15.250Z
+Updated: 2026-08-21T10:01:40.397Z
 Workspace: /home/shaoyuantian/program/HiF4_Sp
-Target agent: Cursor (custom)
+Target agent: Codex (codex)
 
 ## Plan
 
-实施方案已经由用户批准，但当前步骤只完成计划交付，不自动修改源码。后续用户要求 Cursor 开始实现时，严格依次执行以下两个文件：
+严格执行已修订计划：`Native_NVFP4_HiF4_Linear_Puncture/plans/2026-08-21-qwen3-30b-a3b-native-nvfp4-to-hif4-moe-e2e-ablation-no-teacher-cot-plan-cn.md`。
 
-1. 设计约束：`NVFP4/plans/2026-08-21-vllm-v027-nvfp4-emulation-backport-design-cn.md`
-2. 闭环实施计划：`NVFP4/plans/2026-08-21-vllm-v027-nvfp4-emulation-backport-plan-cn.md`
-
-实施原则：以 vLLM tag `v0.27.0` 为唯一 upstream 功能/数值基线；先执行 Task 0 获取 tag SHA 并生成逐文件依赖闭包白名单，再按 Task 1→13 顺序执行。不要整体升级 `3rdparty/vllm`，不要修改 upstream NVFP4 scale/QDQ 逻辑，不实现 per-expert scale 修正版，不静默 fallback 到 Marlin W4A16，不把 packed NVFP4 权重全量展开成 BF16 常驻，不修改 Qwen3 专用模型逻辑。ModelOpt 与 compressed-tensors、Dense 与 MoE 均使用 upstream emulation backend。KV cache 只使用 vLLM 自身 `kv_cache_dtype`，正式验收分别测 `bfloat16` 和 `auto`。当前工作区存在大量无关修改，所有改动必须限制在 Task 0 inventory 白名单内，并按测试先行的 red→green 步骤执行。
-
-真实验收 checkpoint：`/home/shaoyuantian/.cache/huggingface/hub/models--nvidia--Qwen3-30B-A3B-NVFP4/snapshots/2538ded2a4edb247b4d2b4a8ba24e44bd4c017c3/`。所有 Python/test/inference 命令使用 `hif4` conda 环境。
+当前不是从零开始，也不是直接从 Task 5 开始。固定恢复流程：
+1. 先做 Task 0～4 Definition-of-Done audit，只检查并补缺，不重写已经正确的文件。
+2. Task 3 当前已知未完成：`training/moe_layer_runtime.py` 不存在；`test_moe_native_teacher.py` 只有 QDQ 单测和 CUDA smoke，没有真实 attention projection vs vLLM emulation puncture、完整 routed MoE output puncture、router logits/top-k reference gate。先补完 Task 3 并实际 PASS。
+3. 重跑并验收 Task 4 的无-H16 transform equivalence tests。
+4. 然后连续执行 Task 5A→5E、Task 6、7、8、9、10、11、12、13。完成每个 Task 后更新 `Native_NVFP4_HiF4_Linear_Puncture/results/e2e_diag_reconstruction/QWEN3_30B_IMPLEMENTATION_PROGRESS.md`，验收通过立即继续下一 Task。
+5. 文件存在不等于 Task 完成；smoke 不能替代计划要求的 numerical/reference gate。
+6. 在 Task 13 前不得因为“本轮改动较多/适合 review/先汇报”主动停止。small/reviewable steps 只表示实现方式，不表示交还边界。
+7. Task 13 前唯一允许停止：真实 checkpoint/Transformers/vLLM 事实冲突会改变算法语义；数值门禁失败且需要用户选择新的算法定义；资源不足且无法在不改变固定实验口径下继续。触发时按计划写 `QWEN3_30B_IMPLEMENTATION_STOP_REASON.md`，否则继续修 bug。
+8. Task 13 全部 correctness/smoke PASS 后停止并汇报；不要自动启动 Task 14～19 的 25 个正式 training runs。
+9. 所有 Python/pytest/训练命令使用 `hif4` conda 环境；不允许 Marlin W4A16 fallback、silent OOM/adaptive batch；正式 KV=BF16；保持旧 8B 路径不被破坏。
+10. 当前工作区可能含无关改动，禁止清理或覆盖无关文件。
 
 ## Implementation contract
 

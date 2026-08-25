@@ -9,7 +9,10 @@ import torch.nn as nn
 
 from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.artifact import (
     apply_conversion_state,
+    load_conversion_state,
     save_conversion_artifact,
+    save_layer_artifacts,
+    select_layer_diag,
 )
 from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.config import (
     E2ETrainConfig,
@@ -177,3 +180,71 @@ def test_artifact_roundtrip_restores_z_and_runtime(monkeypatch, tmp_path):
     assert relative_l2(y1.float(), y0.float()) < 1e-6
     assert torch.allclose(fresh.model.layers[0].diag_state.z_qkv, torch.full((64,), 0.25))
 
+
+def test_moe_artifact_schema_v3_preserves_candidate_and_adopted_replay(tmp_path):
+    cfg = E2ETrainConfig.for_test(
+        output_dir=str(tmp_path),
+        use_r64=True,
+        router_rollback="on",
+        router_align_loss_weight=0.5,
+    )
+    candidate = {
+        "z_qkv": torch.full((2048,), 0.1),
+        "z_vo": torch.full((512,), 0.2),
+        "z_gu": torch.full((2048,), 0.3),
+        "z_ud": torch.full((128, 768), 0.4),
+    }
+    adopted = {name: value.clone() for name, value in candidate.items()}
+    adopted["z_gu"].zero_()
+    layer_records = {
+        i: {
+            "accepted": False,
+            "rollback": True,
+            "best_epoch": 2,
+            "candidate_best_epoch": 2,
+            "candidate_z": candidate,
+            "adopted_z": adopted,
+            "z": adopted,
+            "loss_rollback_applied": False,
+            "router_rollback_applied": True,
+        }
+        for i in range(48)
+    }
+    path = save_conversion_artifact(cfg=cfg, layer_records=layer_records, out_dir=tmp_path)
+    state = load_conversion_state(path)
+    assert state["schema_version"] == 3
+    assert state["model_type"] == "qwen3_moe"
+    assert state["num_layers"] == 48
+    assert state["num_experts"] == 128
+    assert state["kv_cache_dtype"] == "bfloat16"
+    assert state["use_r64"] is True
+    assert state["rot_order"] == "diag_then_rot"
+    assert state["router_rollback"] == "on"
+    assert state["router_align_type"] == "kl"
+    assert state["router_align_temperature"] == 1.0
+    assert state["router_align_loss_weight"] == 0.5
+    assert state["artifact_diag_variants"] == ["adopted", "candidate"]
+    assert set(state["layers"]) == {str(i) for i in range(48)}
+    rec = state["layers"]["0"]
+    torch.testing.assert_close(select_layer_diag(rec, "candidate")["z_gu"], candidate["z_gu"])
+    torch.testing.assert_close(select_layer_diag(rec, "adopted")["z_gu"], adopted["z_gu"])
+    assert rec["router_rollback_applied"] is True
+
+
+def test_layer_artifact_preserves_pre_rollback_candidate(tmp_path):
+    final_z = {"z_gu": torch.zeros(4)}
+    candidate_z = {"z_gu": torch.tensor([0.25, -0.5, 0.75, -1.0])}
+    d = save_layer_artifacts(
+        tmp_path,
+        0,
+        z=final_z,
+        metrics={"rollback": True},
+        train_log=[],
+        candidate_z=candidate_z,
+        candidate_metrics={"candidate_best_val_loss": 0.1, "router_topk_mismatches": 3},
+    )
+    final_loaded = torch.load(d / "best_diag.pt", map_location="cpu", weights_only=False)
+    candidate_loaded = torch.load(d / "candidate_best_diag.pt", map_location="cpu", weights_only=False)
+    assert torch.equal(final_loaded["z_gu"], final_z["z_gu"])
+    assert torch.equal(candidate_loaded["z_gu"], candidate_z["z_gu"])
+    assert (d / "candidate_metrics.json").is_file()
