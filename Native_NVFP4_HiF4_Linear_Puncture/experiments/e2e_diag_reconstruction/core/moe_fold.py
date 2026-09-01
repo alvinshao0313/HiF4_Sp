@@ -13,9 +13,11 @@ from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.
 )
 from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.moe_semantic_hif4 import (
     MoEFusableDiagState,
+    MoEOnlineDiagState,
 )
 from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.moe_transforms import (
     fusable_weight_transform_no_h,
+    online_weight_transform_no_h,
     transform_router_weight,
 )
 
@@ -73,6 +75,67 @@ def fold_fusable_moe_layer_state(
         attention=attention,
         experts=experts,
     )
+
+
+def fold_online_moe_layer_state(
+    state: MoELayerMasterState,
+    diag_state: MoEOnlineDiagState,
+    *,
+    use_r64: bool,
+    rot_order: str,
+) -> MoELayerMasterState:
+    """Fold the Online inverse transform into weights only.
+
+    Online DIAG/R64 stays on the activation side at runtime.  RMSNorm and Router
+    remain native; each projection weight receives the exact inverse transform
+    used by the training semantic path.
+    """
+    attention = {
+        "q_proj": online_weight_transform_no_h(
+            state.attention["q_proj"], diag_state.d_for("q_proj"),
+            use_r64=use_r64, rot_order=rot_order,
+        ).detach(),
+        "k_proj": online_weight_transform_no_h(
+            state.attention["k_proj"], diag_state.d_for("k_proj"),
+            use_r64=use_r64, rot_order=rot_order,
+        ).detach(),
+        "v_proj": online_weight_transform_no_h(
+            state.attention["v_proj"], diag_state.d_for("v_proj"),
+            use_r64=use_r64, rot_order=rot_order,
+        ).detach(),
+        "o_proj": online_weight_transform_no_h(
+            state.attention["o_proj"], diag_state.d_for("o_proj"),
+            use_r64=use_r64, rot_order=rot_order, head_dim=state.spec.head_dim,
+        ).detach(),
+    }
+    experts: list[MoEExpertMasterState] = []
+    for expert_idx, expert in enumerate(state.experts):
+        experts.append(
+            MoEExpertMasterState(
+                gate_proj=online_weight_transform_no_h(
+                    expert.gate_proj,
+                    diag_state.d_for("gate_proj", expert_idx),
+                    use_r64=use_r64,
+                    rot_order=rot_order,
+                ).detach(),
+                up_proj=online_weight_transform_no_h(
+                    expert.up_proj,
+                    diag_state.d_for("up_proj", expert_idx),
+                    use_r64=use_r64,
+                    rot_order=rot_order,
+                ).detach(),
+                down_proj=online_weight_transform_no_h(
+                    expert.down_proj,
+                    diag_state.d_for("down_proj", expert_idx),
+                    use_r64=use_r64,
+                    rot_order=rot_order,
+                ).detach(),
+                gate_metadata=expert.gate_metadata,
+                up_metadata=expert.up_metadata,
+                down_metadata=expert.down_metadata,
+            )
+        )
+    return replace(state, attention=attention, experts=experts)
 
 
 def router_compensation_logits(

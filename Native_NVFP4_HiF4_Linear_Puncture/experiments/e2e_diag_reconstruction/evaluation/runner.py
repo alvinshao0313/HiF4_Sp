@@ -35,14 +35,15 @@ from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.evalu
     run_arc_vllm,
     run_aime25_avg5_vllm,
     run_mmlu_pro_300_vllm,
+    run_mmlu_vllm,
 )
 from Native_NVFP4_HiF4_Linear_Puncture.src.checkpoint import resolve_local_snapshot
 from Native_NVFP4_HiF4_Linear_Puncture.src.io_utils import ensure_dir, write_json
 from Native_NVFP4_HiF4_Linear_Puncture.src.semantic_model import load_native_nvfp4_semantic_model
 
 from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.evaluation.common import (
-    REASONING_EVAL_GROUPS,
     REASONING_EVAL_NUM_GPUS,
+    VLLM_TP2_EVAL_GROUPS,
     require_visible_cuda_count,
 )
 
@@ -52,6 +53,8 @@ EVAL_VARIANTS = ("native_nvfp4", "direct_hif4", "r64_only", "artifact")
 def _eval_group_metrics_path(output_dir: Path, group: str) -> Path:
     if group == "arc":
         return output_dir / "eval" / "arc" / "metrics.json"
+    if group == "mmlu":
+        return output_dir / "eval" / "mmlu" / "metrics.json"
     if group == "mmlu_pro_300":
         return output_dir / "eval" / "mmlu_pro" / "metrics.json"
     if group == "aime25_avg5":
@@ -195,10 +198,12 @@ def run_aime25_avg5(
 
 
 def _set_eval_seed(eval_seed: int) -> None:
+    # Seed only host RNGs here. Do not touch torch.cuda before vLLM starts:
+    # in-process lm_eval → vLLM still forks TP workers, and a pre-initialized
+    # CUDA context in the parent triggers "Cannot re-initialize CUDA in forked
+    # subprocess". GPU seeding is owned by vLLM via its own seed kwarg.
     random.seed(eval_seed)
     torch.manual_seed(eval_seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(eval_seed)
 
 
 def run_eval_groups(
@@ -212,14 +217,18 @@ def run_eval_groups(
     model_path: str,
     eval_seed: int = 42,
 ) -> dict[str, Any]:
-    if any(g in REASONING_EVAL_GROUPS for g in groups):
+    if any(g in VLLM_TP2_EVAL_GROUPS for g in groups):
         require_visible_cuda_count(REASONING_EVAL_NUM_GPUS)
     _set_eval_seed(eval_seed)
-    out: dict[str, Any] = {
-        "variant": variant,
-        "artifact_diag_variant": artifact_diag_variant,
-        "eval_seed": int(eval_seed),
-    }
+    summary_path = output_dir / "eval" / "eval_summary.json"
+    out: dict[str, Any] = {}
+    if summary_path.is_file():
+        existing_summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        if isinstance(existing_summary, dict):
+            out.update(existing_summary)
+    out["variant"] = variant
+    out["artifact_diag_variant"] = artifact_diag_variant
+    out["eval_seed"] = int(eval_seed)
     spec = resolve_vllm_eval_spec(
         variant=variant,
         model_path=model_path,
@@ -235,7 +244,14 @@ def run_eval_groups(
                 print(f"reuse existing ARC metrics: {output_dir / 'eval' / 'arc' / 'metrics.json'}", flush=True)
                 out["arc"] = existing
             else:
-                out["arc"] = run_arc_vllm(spec=spec, output_dir=output_dir)
+                out["arc"] = run_arc_vllm(spec=spec, output_dir=output_dir, seed=int(eval_seed))
+        if "mmlu" in groups:
+            existing = _load_group_metrics(output_dir, "mmlu")
+            if existing is not None:
+                print(f"reuse existing MMLU metrics: {output_dir / 'eval' / 'mmlu' / 'metrics.json'}", flush=True)
+                out["mmlu"] = existing
+            else:
+                out["mmlu"] = run_mmlu_vllm(spec=spec, output_dir=output_dir, seed=int(eval_seed))
         if "mmlu_pro_300" in groups:
             existing = _load_group_metrics(output_dir, "mmlu_pro_300")
             if existing is not None:
@@ -270,7 +286,8 @@ def run_eval_groups(
                     artifact_diag_variant=artifact_diag_variant,
                     device=device,
                 )
-        write_json(output_dir / "eval" / "eval_summary.json", out)
+        ensure_dir(output_dir / "eval")
+        write_json(summary_path, out)
         return out
     finally:
         cleanup_materialized_eval_spec(spec)

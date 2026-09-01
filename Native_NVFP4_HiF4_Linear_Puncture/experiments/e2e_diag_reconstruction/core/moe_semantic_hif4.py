@@ -26,6 +26,9 @@ from transformers.models.qwen3_moe.modeling_qwen3_moe import (
 from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.modelopt_moe_checkpoint import (
     MoELayerMasterState,
 )
+from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.config import (
+    FUSABLE_COMPONENT_MAP,
+)
 from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.moe_transforms import (
     apply_r64_no_cross_head,
     expand_vo_scale_qwen3_moe,
@@ -122,11 +125,22 @@ class MoEFusableDiagState(nn.Module):
             for name, value in snapshot.items():
                 params[name].copy_(value.to(device=params[name].device, dtype=torch.float32))
 
-    def clamp_log2_(self, bounds: tuple[float, float] = (-4.0, 4.0)) -> None:
+    def clamp_log2_(self, bounds: tuple[float, float] | None = (-4.0, 4.0)) -> None:
+        if bounds is None:
+            return
         lo, hi = bounds
         with torch.no_grad():
             for p in self.parameters():
                 p.clamp_(lo, hi)
+
+    def configure_fusable_components(self, preset: str) -> None:
+        if preset not in FUSABLE_COMPONENT_MAP:
+            raise ValueError(f"invalid fusable_diag_components={preset!r}")
+        active = FUSABLE_COMPONENT_MAP[preset]
+        self.z_qkv.requires_grad_("qkv" in active)
+        self.z_vo.requires_grad_("vo" in active)
+        self.z_gu.requires_grad_("gu" in active)
+        self.z_ud.requires_grad_("ud" in active)
 
 
 class MoEOnlineDiagState(nn.Module):
@@ -171,7 +185,9 @@ class MoEOnlineDiagState(nn.Module):
             for name, value in snapshot.items():
                 params[name].copy_(value.to(device=params[name].device, dtype=torch.float32))
 
-    def clamp_log2_(self, bounds: tuple[float, float] = (-4.0, 4.0)) -> None:
+    def clamp_log2_(self, bounds: tuple[float, float] | None = (-4.0, 4.0)) -> None:
+        if bounds is None:
+            return
         lo, hi = bounds
         with torch.no_grad():
             for p in self.parameters():

@@ -46,6 +46,8 @@ def test_default_hyperparameters():
     assert cfg.diag_lr == 5e-3
     assert cfg.diag_epochs == 20
     assert cfg.diag_scheduler == "cosine"
+    assert cfg.optimizer == "AdamW"
+    assert cfg.weight_decay == 0.0
     assert cfg.diag_log2_clamp == (-4.0, 4.0)
     assert cfg.calib_nsamples == 128
     assert cfg.calib_val_nsamples == 32

@@ -31,8 +31,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--groups",
         type=str,
         default="arc",
-        help="comma-separated: arc,mmlu_pro_300,aime25_avg5. "
-        "Default is arc-only (MMLU-Pro temporarily suspended). "
+        help="comma-separated: arc,mmlu,mmlu_pro_300,aime25_avg5. "
+        "Default is arc-only; formal fast eval uses arc,mmlu_pro_300. "
+        "arc and mmlu use lm_eval+vLLM TP=2; "
         "mmlu_pro_300 and aime25_avg5 use repo-root main.py (vLLM TP=2); "
         "CUDA_VISIBLE_DEVICES must expose at least 2 GPUs",
     )

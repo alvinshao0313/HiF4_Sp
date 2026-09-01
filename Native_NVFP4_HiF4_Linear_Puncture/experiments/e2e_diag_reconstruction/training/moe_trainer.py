@@ -28,6 +28,7 @@ from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.
     router_compensation_topk_gate,
 )
 from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.moe_semantic_hif4 import (
+    MoEFusableDiagState,
     NativeQwen3MoELayerRuntime,
     StudentQwen3MoELayerRuntime,
     StudentStepCache,
@@ -248,6 +249,7 @@ def _train_layer(
     device: torch.device,
     epoch: int,
     optimizer: torch.optim.Optimizer,
+    scheduler,
 ) -> int:
     steps = 0
     runtime.train()
@@ -293,7 +295,9 @@ def _train_layer(
             raise RuntimeError("non-finite MoE layer train loss")
         loss.backward()
         optimizer.step()
-        runtime.diag_state.clamp_log2_(cfg.diag_log2_clamp or (-4.0, 4.0))
+        if scheduler is not None:
+            scheduler.step()
+        runtime.diag_state.clamp_log2_(cfg.diag_log2_clamp)
         steps += 1
     return steps
 
@@ -362,6 +366,10 @@ def train_qwen3_moe_lazy(cfg: E2ETrainConfig, device: torch.device) -> None:
             train_targets = _teacher_targets(native, snapshot, train_samples, collator, x_cache, device, cfg.diag_batch_size)
             val_targets = _teacher_targets(native, snapshot, val_samples, collator, x_cache, device, cfg.diag_batch_size)
             diag_state = build_moe_diag_state(state.spec, cfg.diag_mode).to(device)
+            gu_active = True
+            if isinstance(diag_state, MoEFusableDiagState):
+                diag_state.configure_fusable_components(cfg.fusable_diag_components)
+                gu_active = bool(diag_state.z_gu.requires_grad)
             student = StudentQwen3MoELayerRuntime(
                 state,
                 diag_state,
@@ -371,7 +379,22 @@ def train_qwen3_moe_lazy(cfg: E2ETrainConfig, device: torch.device) -> None:
             identity_loss, identity_router_kl, identity_num, identity_den, val_counts, qdq_calls = _eval_student(
                 student, snapshot, val_samples, collator, x_cache, val_targets, cfg, device
             )
-            optimizer = torch.optim.AdamW(diag_state.parameters(), lr=cfg.diag_lr)
+            params = [p for p in diag_state.parameters() if p.requires_grad]
+            if not params:
+                raise RuntimeError(
+                    f"no trainable DIAG params for fusable_diag_components={cfg.fusable_diag_components!r}"
+                )
+            if cfg.optimizer != "AdamW":
+                raise ValueError(f"unsupported MoE optimizer={cfg.optimizer!r}")
+            optimizer = torch.optim.AdamW(params, lr=cfg.diag_lr, weight_decay=float(cfg.weight_decay))
+            n_batches = len(build_length_bucket_batches(train_samples, cfg.diag_batch_size, cfg.calib_seed))
+            if n_batches <= 0:
+                raise RuntimeError("no training batches")
+            scheduler = None
+            if cfg.diag_scheduler == "cosine":
+                scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                    optimizer, T_max=cfg.diag_epochs * n_batches, eta_min=0.0
+                )
             identity_objective = identity_loss + float(cfg.router_align_loss_weight) * identity_router_kl
             best_loss = identity_loss
             best_router_kl = identity_router_kl
@@ -381,7 +404,17 @@ def train_qwen3_moe_lazy(cfg: E2ETrainConfig, device: torch.device) -> None:
             train_steps = 0
             for epoch in range(cfg.diag_epochs):
                 train_steps += _train_layer(
-                    student, snapshot, train_samples, collator, x_cache, train_targets, cfg, device, epoch, optimizer
+                    student,
+                    snapshot,
+                    train_samples,
+                    collator,
+                    x_cache,
+                    train_targets,
+                    cfg,
+                    device,
+                    epoch,
+                    optimizer,
+                    scheduler,
                 )
                 val_loss, val_router_kl, _num, _den, val_counts, qdq_calls = _eval_student(
                     student, snapshot, val_samples, collator, x_cache, val_targets, cfg, device
@@ -424,6 +457,7 @@ def train_qwen3_moe_lazy(cfg: E2ETrainConfig, device: torch.device) -> None:
                 )
             router_would_rollback = (
                 cfg.diag_mode == "fusable"
+                and gu_active
                 and int(candidate_gate_stats.get("topk_mismatches", 0)) != 0
             )
 

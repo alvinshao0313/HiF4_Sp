@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../common.sh
 source "${SCRIPT_DIR}/../common.sh"
 
-export GPU_POOL="${GPU_POOL:-1,6,7}"
+export GPU_POOL="${GPU_POOL:-1,2,3}"
 export STAMP="${STAMP:-$(date -u +%Y%m%dT%H%M%SZ)}"
 # s1k_original 自然变长（P50≈9k / max≈22k），batch=4 会 OOM；整条消融固定同一 batch。
 export DIAG_BATCH_SIZE=1

@@ -41,6 +41,7 @@ from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.evalu
 )
 from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.evaluation.lm_eval_vllm import (
     build_lm_eval_vllm_kwargs,
+    patch_lm_eval_vllm_generate_compat,
 )
 from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.evaluation.moe_materialize import (
     materialize_moe_checkpoint,
@@ -411,8 +412,10 @@ def run_arc_vllm(
     output_dir: Path,
     max_model_len: int = 4096,
     max_num_batched_tokens: int = 4096,
+    seed: int = 42,
 ) -> dict[str, Any]:
     _patch_lm_eval_transformers()
+    patch_lm_eval_vllm_generate_compat()
     from lm_eval import simple_evaluate
 
     kwargs = build_lm_eval_vllm_kwargs(
@@ -424,7 +427,8 @@ def run_arc_vllm(
         ),
         native_nvfp4=spec.native_nvfp4,
         max_model_len=max_model_len,
-        max_num_batched_tokens=max_num_batched_tokens,
+        max_num_batched_tokens=int(max_num_batched_tokens),
+        seed=int(seed),
     )
     if spec.hif4_runtime_spec_path is not None:
         os.environ["HIF4_RUNTIME_SPEC_PATH"] = str(spec.hif4_runtime_spec_path.resolve())
@@ -447,6 +451,7 @@ def run_arc_vllm(
         "tensor_parallel_size": 2,
         "kv_cache_dtype": "bfloat16",
         "enforce_eager": True,
+        "max_num_batched_tokens": int(max_num_batched_tokens),
         "scores": scores,
         "raw_results": out["results"],
     }
@@ -454,6 +459,62 @@ def run_arc_vllm(
         payload["hif4_runtime_spec_path"] = str(spec.hif4_runtime_spec_path)
     ensure_dir(output_dir / "eval" / "arc")
     write_json(output_dir / "eval" / "arc" / "metrics.json", payload)
+    return payload
+
+
+def run_mmlu_vllm(
+    *,
+    spec: VllmEvalSpec,
+    output_dir: Path,
+    max_model_len: int = 4096,
+    max_num_batched_tokens: int = 4096,
+    seed: int = 42,
+) -> dict[str, Any]:
+    _patch_lm_eval_transformers()
+    patch_lm_eval_vllm_generate_compat()
+    from lm_eval import simple_evaluate
+
+    kwargs = build_lm_eval_vllm_kwargs(
+        model_path=str(spec.model_path),
+        hif4_runtime_spec_path=(
+            str(spec.hif4_runtime_spec_path)
+            if spec.hif4_runtime_spec_path is not None
+            else None
+        ),
+        native_nvfp4=spec.native_nvfp4,
+        max_model_len=max_model_len,
+        max_num_batched_tokens=int(max_num_batched_tokens),
+        seed=int(seed),
+    )
+    if spec.hif4_runtime_spec_path is not None:
+        os.environ["HIF4_RUNTIME_SPEC_PATH"] = str(spec.hif4_runtime_spec_path.resolve())
+    out = simple_evaluate(
+        model="vllm",
+        model_args=kwargs,
+        tasks=["mmlu"],
+        num_fewshot=0,
+        batch_size="auto",
+    )
+    scores = {}
+    for task, task_result in out["results"].items():
+        if not isinstance(task_result, dict):
+            continue
+        _key, value = _pick_metric(task_result)
+        if value is not None:
+            scores[task] = value
+    payload = {
+        "backend": "lm_eval_vllm",
+        "tensor_parallel_size": 2,
+        "kv_cache_dtype": "bfloat16",
+        "enforce_eager": True,
+        "max_num_batched_tokens": int(max_num_batched_tokens),
+        "scores": scores,
+        "raw_results": out["results"],
+    }
+    if spec.hif4_runtime_spec_path is not None:
+        payload["hif4_runtime_spec_path"] = str(spec.hif4_runtime_spec_path)
+    ensure_dir(output_dir / "eval" / "mmlu")
+    write_json(output_dir / "eval" / "mmlu" / "metrics.json", payload)
     return payload
 
 
@@ -485,6 +546,7 @@ def run_main_py_lighteval(
     temperature: float,
     top_p: float,
     top_k: int,
+    min_p: float,
     fake_act_quant: str,
     disable_thinking: bool,
     tensor_parallel_size: int = REASONING_EVAL_NUM_GPUS,
@@ -503,7 +565,7 @@ def run_main_py_lighteval(
         "--tensor_parallel_size",
         str(tensor_parallel_size),
         "--max_model_length",
-        "32768",
+        "40960",
         "--max_new_tokens",
         str(max_new_tokens),
         "--temperature",
@@ -512,6 +574,8 @@ def run_main_py_lighteval(
         str(top_p),
         "--top_k",
         str(top_k),
+        "--min_p",
+        str(min_p),
         "--gpu_memory_utilization",
         "0.9",
         "--fake_act_quant",
@@ -556,6 +620,13 @@ def run_main_py_lighteval(
     parsed["kv_cache_dtype"] = "bfloat16"
     parsed["enforce_eager"] = True
     parsed["native_nvfp4"] = native_nvfp4
+    parsed["max_model_length"] = 40960
+    parsed["max_new_tokens"] = int(max_new_tokens)
+    parsed["temperature"] = float(temperature)
+    parsed["top_p"] = float(top_p)
+    parsed["top_k"] = int(top_k)
+    parsed["min_p"] = float(min_p)
+    parsed["enable_thinking"] = not bool(disable_thinking)
     if hif4_runtime_spec_path is not None:
         parsed["hif4_runtime_spec_path"] = str(hif4_runtime_spec_path)
     if max_samples is not None:
@@ -587,11 +658,12 @@ def run_mmlu_pro_300_vllm(
         datasets="mmlu_pro|0",
         max_samples=300,
         max_new_tokens=32768,
-        temperature=0.7,
-        top_p=0.8,
+        temperature=0.6,
+        top_p=0.95,
         top_k=20,
+        min_p=0.0,
         fake_act_quant=spec.fake_act_quant,
-        disable_thinking=True,
+        disable_thinking=False,
         hif4_runtime_spec_path=spec.hif4_runtime_spec_path,
         native_nvfp4=spec.native_nvfp4,
     )
@@ -622,10 +694,11 @@ def run_aime25_avg5_vllm(
         output_dir=eval_root / "vllm_run",
         datasets="aime25_avg5|0",
         max_samples=None,
-        max_new_tokens=32768,
-        temperature=0.7,
-        top_p=0.8,
+        max_new_tokens=38912,
+        temperature=0.6,
+        top_p=0.95,
         top_k=20,
+        min_p=0.0,
         fake_act_quant=spec.fake_act_quant,
         disable_thinking=False,
         hif4_runtime_spec_path=spec.hif4_runtime_spec_path,

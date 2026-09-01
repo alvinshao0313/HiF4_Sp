@@ -252,6 +252,12 @@ def parse_args():
         help="top_k 采样。默认: 20",
     )
     parser.add_argument(
+        "--min_p",
+        type=float,
+        default=0.0,
+        help="min_p 采样。Qwen3 官方 thinking/non-thinking 推荐值均为 0。默认: 0.0",
+    )
+    parser.add_argument(
         "--output_dir",
         type=str,
         default="./results",
@@ -302,7 +308,7 @@ def parse_args():
         "--disable_thinking",
         action="store_true",
         help="关闭 Qwen 等模型的 thinking/reasoning（apply_chat_template enable_thinking=False）。"
-             "MMLU 等短答案选择题应开启，避免模型只输出思考过程导致 exact match 全 0。",
+             "正式 Qwen3-30B-A3B NVFP4→HiF4 对照默认不传此参数，保持官方推荐 thinking 模式。",
     )
     parser.add_argument(
         "--enforce_eager",
@@ -524,6 +530,9 @@ def main():
     pipeline_params = PipelineParameters(**kwargs)
 
     kv_quant_enabled = args.kv_quant_format != "none"
+    moe_backend = args.moe_backend
+    if args.hif4_runtime_spec and moe_backend == "auto":
+        moe_backend = "triton"
     vllm_model_kwargs = dict(
         model_name=args.model_path,
         trust_remote_code=True,
@@ -535,13 +544,14 @@ def main():
         allow_deprecated_quantization=args.allow_deprecated_quantization,
         cpu_offload_gb=args.cpu_offload_gb,
         linear_backend=args.linear_backend,
-        moe_backend=args.moe_backend,
+        moe_backend=moe_backend,
         kv_cache_dtype=args.kv_cache_dtype,
         enable_prefix_caching=False if args.kv_quant_recent_size > 0 else None,
         generation_parameters=GenerationParameters(
             temperature=args.temperature,
             top_p=args.top_p,
             top_k=args.top_k,
+            min_p=args.min_p,
             max_new_tokens=args.max_new_tokens,
         ),
     )

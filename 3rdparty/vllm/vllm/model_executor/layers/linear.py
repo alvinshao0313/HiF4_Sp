@@ -450,6 +450,46 @@ class UnquantizedLinearMethod(LinearMethodBase):
         x: torch.Tensor,
         bias: torch.Tensor | None = None,
     ) -> torch.Tensor:
+        prefix = getattr(layer, "prefix", "")
+        runtime_spec = hif4_runtime.current_hif4_runtime_spec(
+            self.hif4_runtime_spec_path
+        )
+        if (
+            runtime_spec is not None
+            and hif4_runtime.algorithm_variant(runtime_spec) == "online"
+            and prefix.endswith(".qkv_proj")
+        ):
+            if self.hif4_fake_act or self.nvf4_fake_act:
+                raise ValueError(
+                    "Online HiF4 QKV runtime cannot be combined with an extra "
+                    "fake_act_quant pass"
+                )
+            q_x, k_x, v_x = hif4_runtime.apply_online_qkv_hif4_runtime(
+                prefix, x, self.hif4_runtime_spec_path
+            )
+            sizes = list(getattr(layer, "output_partition_sizes", ()))
+            if len(sizes) != 3 or sum(sizes) != int(layer.weight.shape[0]):
+                raise ValueError(
+                    "Online HiF4 QKV requires three local output partitions, got "
+                    f"{sizes} for weight {tuple(layer.weight.shape)}"
+                )
+            gemm = dispatch_unquantized_gemm()
+            outputs = []
+            offset = 0
+            for branch_x, size in zip((q_x, k_x, v_x), sizes):
+                next_offset = offset + int(size)
+                branch_bias = None if bias is None else bias[offset:next_offset]
+                outputs.append(
+                    gemm(
+                        layer,
+                        branch_x,
+                        layer.weight[offset:next_offset],
+                        branch_bias,
+                    )
+                )
+                offset = next_offset
+            return torch.cat(outputs, dim=-1)
+
         if self.hif4_fake_act and not self._skip_fake_act(layer):
             if self.fake_act_quant == "hif4":
                 x = hif4_fake.hif4_fake_quantize_hifx4(x)

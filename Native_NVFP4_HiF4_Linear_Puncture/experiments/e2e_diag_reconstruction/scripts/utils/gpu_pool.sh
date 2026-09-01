@@ -16,6 +16,8 @@ detect_available_gpus() {
     known+=("${idx}")
   done <<< "${smi}"
 
+  local project_pool="${PROJECT_GPU_POOL:-0,1,2,3}"
+
   if [[ -n "${GPU_POOL:-}" ]]; then
     local tok
     IFS=',' read -r -a toks <<< "${GPU_POOL}"
@@ -34,6 +36,19 @@ detect_available_gpus() {
         echo "GPU_POOL id ${tok} is not a nvidia-smi GPU" >&2
         return 1
       fi
+      local project_ok=0 project_id
+      IFS=',' read -r -a project_ids <<< "${project_pool}"
+      for project_id in "${project_ids[@]}"; do
+        project_id="${project_id// /}"
+        if [[ "${project_id}" == "${tok}" ]]; then
+          project_ok=1
+          break
+        fi
+      done
+      if [[ "${project_ok}" -ne 1 ]]; then
+        echo "GPU_POOL id ${tok} is outside PROJECT_GPU_POOL=${project_pool}" >&2
+        return 1
+      fi
       printf '%s\n' "${tok}"
     done
     return 0
@@ -46,6 +61,16 @@ detect_available_gpus() {
     free="${free// /}"
     total="${total// /}"
     util="${util// /}"
+    local project_ok=0 project_id
+    IFS=',' read -r -a project_ids <<< "${project_pool}"
+    for project_id in "${project_ids[@]}"; do
+      project_id="${project_id// /}"
+      if [[ "${project_id}" == "${idx}" ]]; then
+        project_ok=1
+        break
+      fi
+    done
+    [[ "${project_ok}" -eq 1 ]] || continue
     if awk -v f="${free}" -v t="${total}" -v r="${min_ratio}" -v u="${util}" -v mu="${max_util}" 'BEGIN {
       if (t + 0 <= 0) exit 1
       if ((f + 0) / (t + 0) >= (r + 0) && (u + 0) <= (mu + 0)) exit 0

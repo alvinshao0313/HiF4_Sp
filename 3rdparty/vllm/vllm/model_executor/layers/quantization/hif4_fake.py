@@ -6,7 +6,18 @@ import torch.nn.functional as F  # [hif4 quant]
 
 
 def hif4_fake_quantize_hifx4(x: torch.Tensor) -> torch.Tensor:  # [hif4 quant]
-    """Apply HiF4 hifx4 fake quant-dequant along the last dimension."""  # [hif4 quant]
+    """Apply HiF4 hifx4 QDQ, using the Triton kernel on CUDA."""  # [hif4 quant]
+    if x.is_cuda:  # [hif4 quant]
+        from vllm.model_executor.layers.quantization.hif4_triton import (  # [hif4 quant]
+            hif4_quantize_hifx4_triton,  # [hif4 quant]
+        )  # [hif4 quant]
+
+        return hif4_quantize_hifx4_triton(x)  # [hif4 quant]
+    return _hif4_fake_quantize_hifx4_torch(x)  # [hif4 quant]
+
+
+def _hif4_fake_quantize_hifx4_torch(x: torch.Tensor) -> torch.Tensor:  # [hif4 quant]
+    """PyTorch reference for HiF4 hifx4 fake quant-dequant."""  # [hif4 quant]
     orig_dtype = x.dtype  # [hif4 quant]
     orig_cols = x.shape[-1]  # [hif4 quant]
     pad_cols = (64 - orig_cols % 64) % 64  # [hif4 quant]

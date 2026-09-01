@@ -29,6 +29,9 @@ ROT_ORDERS = ("diag_then_rot", "rot_then_diag")
 TRAIN_SCOPES = ("layer_joint", "linear_independent")
 RECON_LOSSES = ("block_delta_nmse", "block_output_nmse", "mse")
 SCHEDULERS = ("cosine", "constant")
+OPTIMIZERS = ("AdamW",)
+DEFAULT_OPTIMIZER = "AdamW"
+DEFAULT_WEIGHT_DECAY = 0.0
 CALIB_SOURCES = (
     "s1k_teacher_cot",
     "s1k_original",
@@ -95,6 +98,8 @@ class E2ETrainConfig:
     diag_lr: float = 5e-3
     diag_epochs: int = 20
     diag_scheduler: str = "cosine"
+    optimizer: str = DEFAULT_OPTIMIZER
+    weight_decay: float = DEFAULT_WEIGHT_DECAY
     diag_log2_clamp: tuple[float, float] | None = (-4.0, 4.0)
     calib_source: str = "s1k_original"
     calib_nsamples: int = 128
@@ -164,6 +169,10 @@ def build_train_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--diag_scheduler", type=str, choices=SCHEDULERS, default="cosine"
     )
+    p.add_argument(
+        "--optimizer", type=str, choices=OPTIMIZERS, default=DEFAULT_OPTIMIZER
+    )
+    p.add_argument("--weight_decay", type=float, default=DEFAULT_WEIGHT_DECAY)
     p.add_argument("--diag_log2_clamp", type=str, default="-4,4")
     p.add_argument(
         "--calib_source", type=str, choices=CALIB_SOURCES, default="s1k_original"
@@ -232,6 +241,8 @@ def config_from_namespace(args: argparse.Namespace) -> E2ETrainConfig:
         diag_lr=float(args.diag_lr),
         diag_epochs=int(args.diag_epochs),
         diag_scheduler=str(args.diag_scheduler),
+        optimizer=str(args.optimizer),
+        weight_decay=float(args.weight_decay),
         diag_log2_clamp=parse_log2_clamp(str(args.diag_log2_clamp)),
         calib_source=str(args.calib_source),
         calib_nsamples=int(args.calib_nsamples),
@@ -274,6 +285,10 @@ def validate_train_config(cfg: E2ETrainConfig) -> None:
         raise ValueError(f"invalid recon_loss={cfg.recon_loss!r}")
     if cfg.diag_scheduler not in SCHEDULERS:
         raise ValueError(f"invalid diag_scheduler={cfg.diag_scheduler!r}")
+    if cfg.optimizer not in OPTIMIZERS:
+        raise ValueError(f"invalid optimizer={cfg.optimizer!r}")
+    if not math.isfinite(cfg.weight_decay) or cfg.weight_decay < 0:
+        raise ValueError("weight_decay must be finite and >= 0")
     if cfg.calib_source not in CALIB_SOURCES:
         raise ValueError(f"invalid calib_source={cfg.calib_source!r}")
     if cfg.teacher_trace_policy not in TEACHER_TRACE_POLICIES:
@@ -367,6 +382,8 @@ def resolved_config_lines(cfg: E2ETrainConfig, extra: dict[str, Any] | None = No
         f"diag_lr={cfg.diag_lr}",
         f"diag_epochs={cfg.diag_epochs}",
         f"diag_scheduler={cfg.diag_scheduler}",
+        f"optimizer={cfg.optimizer}",
+        f"weight_decay={cfg.weight_decay}",
         f"diag_log2_clamp={format_log2_clamp(cfg.diag_log2_clamp)}",
         f"calib_source={cfg.calib_source}",
         f"calib_nsamples={cfg.calib_nsamples}",

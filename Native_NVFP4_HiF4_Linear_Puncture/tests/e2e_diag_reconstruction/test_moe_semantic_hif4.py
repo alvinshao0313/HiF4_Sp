@@ -317,3 +317,38 @@ def test_router_rollback_only_resets_d_gu_and_preserves_candidate():
         router_rollback_applied=False,
     )
     assert all(torch.equal(v, torch.zeros_like(v)) for v in full_rollback.values())
+
+
+def test_moe_fusable_component_mask_freezes_inactive_and_keeps_gu_identity():
+    state = MoEFusableDiagState(
+        hidden_size=8,
+        num_experts=2,
+        moe_intermediate_size=4,
+        num_key_value_heads=1,
+        head_dim=8,
+    )
+    state.configure_fusable_components("qkv")
+    assert state.z_qkv.requires_grad is True
+    assert state.z_vo.requires_grad is False
+    assert state.z_gu.requires_grad is False
+    assert state.z_ud.requires_grad is False
+    assert torch.equal(state.z_gu, torch.zeros_like(state.z_gu))
+    assert torch.equal(state.d_gu(), torch.ones_like(state.z_gu))
+    trainable = [p for p in state.parameters() if p.requires_grad]
+    assert trainable == [state.z_qkv]
+
+
+def test_moe_clamp_none_does_not_clip():
+    state = MoEFusableDiagState(
+        hidden_size=4,
+        num_experts=1,
+        moe_intermediate_size=2,
+        num_key_value_heads=1,
+        head_dim=4,
+    )
+    with torch.no_grad():
+        state.z_qkv.fill_(9.0)
+    state.clamp_log2_(None)
+    assert float(state.z_qkv.max()) == 9.0
+    state.clamp_log2_((-4.0, 4.0))
+    assert float(state.z_qkv.max()) == 4.0
