@@ -1,4 +1,6 @@
-# H4 4维 Hadamard 块旋转实验
+# Qwen3-8B QAT：H4 4维 Hadamard 块旋转历史实验
+
+> **模型归属：`ISTA-DASLab/Qwen3-8B-FPQuant-QAT-NVFP4`。** 本实验复用旧 8B Linear puncture 保存的 activation / weight，不属于当前 Qwen3-30B-A3B MoE 主线。
 
 验证固定 `R4 = H4 / 2` 的 G4 块旋转，会不会在不改变 Linear 浮点结果的前提下，降低保存激活转到 HiF4 的量化误差，以及同步旋转权重后 Linear 输出误差会不会一起降。
 
@@ -46,7 +48,7 @@ bash Native_NVFP4_HiF4_Linear_Puncture/experiments/h4_block_rotation/run_full.sh
 结果写到：
 
 ```text
-Native_NVFP4_HiF4_Linear_Puncture/results/h4_block_rotation/<run_id>/
+Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_8b_qat/mechanism_analysis/h4_block_rotation/<run_id>/
 ```
 
 ## 输出

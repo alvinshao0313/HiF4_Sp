@@ -21,6 +21,7 @@ import pandas as pd
 import torch
 
 from Native_NVFP4_HiF4_Linear_Puncture.src.config import (
+    EXPERIMENT_ROOT,
     TARGET_PROJECTIONS,
     AppConfig,
     Hif4Config,
@@ -813,7 +814,9 @@ def run_grid_scale_validation(
     val_agg = aggregate_rows(val_rows)
     projection_rows = aggregate_by_projection(rows)
 
-    run_dir = ensure_dir(results_dir(run_id))
+    run_dir = ensure_dir(
+        EXPERIMENT_ROOT / "results" / "qwen3_8b_qat" / "mechanism_analysis" / run_id
+    )
     per_df = pd.DataFrame(rows, columns=PER_MODULE_COLUMNS)
     per_df.to_csv(run_dir / "grid_scale_per_module.csv", index=False)
     proj_df = pd.DataFrame(projection_rows, columns=PROJECTION_COLUMNS)

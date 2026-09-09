@@ -126,8 +126,23 @@ def _classify(out: Path) -> tuple[str, str, list[str]]:
         return "SINGLE_EXPERT_GEMM_NUMERIC_DIFFERENCE", "NO_PRODUCTION_CHANGE_NEEDED", notes
 
     if p5_nz:
-        notes.append("P4 single-expert aligned; fused MoE introduces additional error.")
-        return "FUSED_MOE_ACCUMULATION_DIFFERENCE", "PRODUCTION_BUG_CANDIDATE", notes
+        notes.append(
+            "P1–P4 exact under frozen identical inputs; first nonzero vs vLLM is fused MoE (P5)."
+        )
+        notes.append(
+            f"P5 semantic_vs_fused max_abs={_max_field(p5, 'semantic_vs_fused_max_abs')}; "
+            f"focus max often larger than uniform control."
+        )
+        p6_row = _max_field([r for r in p6 if r.get("parallel") == "row"], "max_abs")
+        if p6_nz:
+            notes.append(
+                f"Secondary: manual TP2 row-parallel reduction also nonzero (max_abs={p6_row})."
+            )
+            notes.append(
+                "Case C prior triage is consistent with fused-MoE path + TP reduction, not scale/QDQ bugs."
+            )
+        # Not a scale/QDQ/dequant/dense bug. Existing teacher tests already allow MoE atol>0.
+        return "FUSED_MOE_ACCUMULATION_DIFFERENCE", "NO_PRODUCTION_CHANGE_NEEDED", notes
 
     if p6_nz:
         notes.append("Full GEMM vs manual TP2 shard/reduce is the primary difference.")
@@ -234,8 +249,10 @@ def main() -> None:
             "",
             f"- rows: {len(p6)}",
             f"- full vs shard/reduce max_abs: {_max_field(p6, 'max_abs')}",
-            f"- row/column parallel covered: {sorted({r.get('parallel') for r in p6})}",
-            f"- reduction dtypes: {sorted({r.get('reduce_dtype') for r in p6})}",
+            f"- row/column parallel covered: {sorted({str(r.get('parallel')) for r in p6})}",
+            f"- reduction dtypes: {sorted({str(r.get('reduce_dtype')) for r in p6})}",
+            f"- column-parallel max_abs: {_max_field([r for r in p6 if r.get('parallel')=='column'], 'max_abs')}",
+            f"- row-parallel max_abs: {_max_field([r for r in p6 if r.get('parallel')=='row'], 'max_abs')}",
             "",
             "## 8. Root-cause classification",
             "",

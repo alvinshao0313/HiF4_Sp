@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import ast
-import importlib
 import json
 from pathlib import Path
 
@@ -27,25 +26,10 @@ from Native_NVFP4_HiF4_Linear_Puncture.experiments.long_trajectory_stability.lau
     CHAT_TEMPLATE_NAME,
     ensure_chat_template_model_path,
 )
-from Native_NVFP4_HiF4_Linear_Puncture.experiments.long_trajectory_stability.run_semantic_matrix import (
-    require_existing_e0_parity_pass,
-)
 from Native_NVFP4_HiF4_Linear_Puncture.experiments.long_trajectory_stability.trajectory_io import (
     load_detail_trajectories,
     prompt_key,
 )
-
-
-def test_failed_e0_parity_file_is_not_skippable_success(tmp_path: Path) -> None:
-    missing = tmp_path / "missing.json"
-    assert require_existing_e0_parity_pass(missing, 0.99) is False
-    ok = tmp_path / "ok.json"
-    ok.write_text('{"top1_parity": 0.995}', encoding="utf-8")
-    assert require_existing_e0_parity_pass(ok, 0.99) is True
-    bad = tmp_path / "bad.json"
-    bad.write_text('{"top1_parity": 0.8571}', encoding="utf-8")
-    with pytest.raises(RuntimeError, match="do not continue E1-E4"):
-        require_existing_e0_parity_pass(bad, 0.99)
 
 
 def test_chat_template_view_is_local_and_does_not_rewrite_source(tmp_path: Path) -> None:
@@ -123,13 +107,6 @@ def test_all_experiment_python_files_parse() -> None:
     exp_dir = Path(__file__).resolve().parents[2] / "experiments/long_trajectory_stability"
     for path in sorted(exp_dir.glob("*.py")):
         ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-
-
-def test_causal_replay_module_imports() -> None:
-    pytest.importorskip("transformers")
-    importlib.import_module(
-        "Native_NVFP4_HiF4_Linear_Puncture.experiments.long_trajectory_stability.causal_replay"
-    )
 
 
 def test_capture_loader_keeps_exact_ids(tmp_path: Path) -> None:

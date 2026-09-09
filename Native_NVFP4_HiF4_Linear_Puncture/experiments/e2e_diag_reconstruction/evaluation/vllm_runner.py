@@ -552,6 +552,7 @@ def run_main_py_lighteval(
     tensor_parallel_size: int = REASONING_EVAL_NUM_GPUS,
     hif4_runtime_spec_path: Path | None = None,
     native_nvfp4: bool = False,
+    batch_size: int | None = None,
 ) -> dict[str, Any]:
     require_visible_cuda_count(tensor_parallel_size)
     ensure_dir(output_dir)
@@ -599,6 +600,10 @@ def run_main_py_lighteval(
         cmd.append("--disable_thinking")
     if fake_act_quant == "nvfp4":
         cmd.append("--allow-deprecated-quantization")
+    if batch_size is not None:
+        if int(batch_size) < 1:
+            raise ValueError("batch_size must be >= 1")
+        cmd.extend(["--batch_size", str(int(batch_size))])
     log_path = output_dir / "main_py.log"
     env = dict(os.environ)
     with log_path.open("w", encoding="utf-8") as log_f:
@@ -627,6 +632,7 @@ def run_main_py_lighteval(
     parsed["top_k"] = int(top_k)
     parsed["min_p"] = float(min_p)
     parsed["enable_thinking"] = not bool(disable_thinking)
+    parsed["batch_size_max_num_seqs"] = batch_size
     if hif4_runtime_spec_path is not None:
         parsed["hif4_runtime_spec_path"] = str(hif4_runtime_spec_path)
     if max_samples is not None:
@@ -642,6 +648,7 @@ def run_mmlu_pro_300_vllm(
     artifact_path: str | Path | None = None,
     artifact_diag_variant: str = "adopted",
     device: str = "cuda",
+    batch_size: int | None = 128,
 ) -> dict[str, Any]:
     spec = resolve_vllm_eval_spec(
         variant=variant,
@@ -651,6 +658,8 @@ def run_mmlu_pro_300_vllm(
         output_dir=output_dir,
         device=device,
     )
+    if batch_size is None:
+        batch_size = 128
     eval_root = ensure_dir(output_dir / "eval" / "mmlu_pro")
     results = run_main_py_lighteval(
         model_path=spec.model_path,
@@ -666,7 +675,9 @@ def run_mmlu_pro_300_vllm(
         disable_thinking=False,
         hif4_runtime_spec_path=spec.hif4_runtime_spec_path,
         native_nvfp4=spec.native_nvfp4,
+        batch_size=batch_size,
     )
+    results["batch_size_max_num_seqs"] = batch_size
     write_json(eval_root / "metrics.json", results)
     return results
 

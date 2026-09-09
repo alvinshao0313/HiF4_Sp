@@ -63,4 +63,6 @@ def available_gpus() -> list[int]:
 def cuda_env(gpu_ids: list[int]) -> dict[str, str]:
     env = dict(os.environ)
     env["CUDA_VISIBLE_DEVICES"] = ",".join(str(x) for x in gpu_ids)
+    # Required by real vLLM apply_model() RPC of diagnostic hook callables.
+    env["VLLM_ALLOW_INSECURE_SERIALIZATION"] = "1"
     return env

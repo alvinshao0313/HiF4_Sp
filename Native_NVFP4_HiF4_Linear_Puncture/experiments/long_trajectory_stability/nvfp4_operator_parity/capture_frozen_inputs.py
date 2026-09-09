@@ -25,7 +25,7 @@ from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.
     NativeQwen3MoELayerRuntime,
     qwen3_moe_config_from_snapshot,
 )
-from Native_NVFP4_HiF4_Linear_Puncture.experiments.long_trajectory_stability.causal_replay import (
+from Native_NVFP4_HiF4_Linear_Puncture.experiments.long_trajectory_stability.nvfp4_operator_parity.checkpoint_io import (
     install_causal_sdpa,
     load_index,
     load_tensor,

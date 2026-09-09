@@ -197,7 +197,7 @@ def load_config(path: str | Path | None = None) -> AppConfig:
 
 
 def results_dir(run_id: str) -> Path:
-    return EXPERIMENT_ROOT / "results" / run_id
+    return EXPERIMENT_ROOT / "results" / "qwen3_8b_qat" / "linear_puncture" / run_id
 
 
 def validate_forward_dtype(forward_dtype: str) -> None:

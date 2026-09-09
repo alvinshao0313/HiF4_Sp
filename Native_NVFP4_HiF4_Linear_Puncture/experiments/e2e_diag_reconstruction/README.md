@@ -1,4 +1,14 @@
-# Native NVFP4 → HiF4 逐层 DIAG / R64 端到端重建
+# Native NVFP4 → HiF4 逐层重建框架
+
+> **目录性质：共享实现，历史上先服务于 Qwen3-8B QAT，之后已增量适配到当前 Qwen3-30B-A3B MoE 主线。不要把整个目录都理解为 8B，也不要把 8B 历史实验结果与 30B 结果混用。**
+>
+> - 旧 dense 模型：`ISTA-DASLab/Qwen3-8B-FPQuant-QAT-NVFP4`
+> - 当前 MoE 模型：`nvidia/Qwen3-30B-A3B-NVFP4`
+> - 当前 30B 计划：`Native_NVFP4_HiF4_Linear_Puncture/plans/qwen3_30b_a3b/`
+>
+> 下文保留的是最初 Qwen3-8B 阶段的协议说明，作为历史实现语义和实验记录，不删除、不改写成 30B 协议。30B 的 ModelOpt MoE checkpoint、router、per-expert transform、materialize 和 vLLM runtime 约束以当前 30B plans 与对应代码为准。
+
+## Qwen3-8B QAT 历史协议
 
 第一阶段只做 fake HiF4 QDQ 的数值正确性与精度。不导出 packed kernel，也不走 vLLM 真量化。
 

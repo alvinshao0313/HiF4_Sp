@@ -1,4 +1,6 @@
-# 梯度 DIAG 实验（同目录）
+# Qwen3-8B QAT：梯度 DIAG / H4 / R64 历史实验
+
+> **模型归属：`ISTA-DASLab/Qwen3-8B-FPQuant-QAT-NVFP4`。** 本目录属于旧 Qwen3-8B dense + checkpoint online rotation 实验线，不是当前 Qwen3-30B-A3B MoE 主线。
 
 ## 1. 逐通道 DIAG
 

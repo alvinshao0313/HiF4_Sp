@@ -189,7 +189,14 @@ LAYER_COLUMNS = [
 
 
 def h4_results_dir(run_id: str) -> Path:
-    return EXPERIMENT_ROOT / "results" / "h4_block_rotation" / run_id
+    return (
+        EXPERIMENT_ROOT
+        / "results"
+        / "qwen3_8b_qat"
+        / "mechanism_analysis"
+        / "h4_block_rotation"
+        / run_id
+    )
 
 
 def _finite_float(name: str, value: float) -> float:

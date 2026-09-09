@@ -32,6 +32,16 @@ LOG2_MIN = -4.0
 LOG2_MAX = 4.0
 
 
+def diag_results_dir(run_id: str) -> Path:
+    return (
+        Path(__file__).resolve().parents[2]
+        / "results"
+        / "qwen3_8b_qat"
+        / "diag_transform_optimization"
+        / run_id
+    )
+
+
 def log2_bound_meta(log2_clamp: bool) -> dict[str, Any]:
     """落盘用：是否钳位 z，以及对应 log2 上下界（无约束时为 null）。"""
     return {

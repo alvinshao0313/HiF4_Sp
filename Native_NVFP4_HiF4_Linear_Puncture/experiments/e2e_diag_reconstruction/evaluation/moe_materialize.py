@@ -37,12 +37,43 @@ HIF4_RUNTIME_ABI_VERSION = 3
 NVFP4_AUX_SUFFIXES = (".weight_scale", ".weight_scale_2", ".input_scale")
 NON_LAYER_KEYS = ("model.embed_tokens.weight", "model.norm.weight", "lm_head.weight")
 
+# Tokenizer / chat assets required for lighteval chat-template parity with the
+# source NVFP4 snapshot. Do not include hf_quant_config.json.
+TOKENIZER_ASSET_NAMES = (
+    "tokenizer.json",
+    "tokenizer_config.json",
+    "generation_config.json",
+    "special_tokens_map.json",
+    "chat_template.jinja",
+    "added_tokens.json",
+    "vocab.json",
+    "merges.txt",
+)
+
 
 def _copy_json_without_quantization(src: Path, dst: Path) -> None:
     cfg = json.loads(src.read_text(encoding="utf-8"))
     cfg.pop("quantization_config", None)
     cfg["torch_dtype"] = "bfloat16"
     dst.write_text(json.dumps(cfg, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def _copy_tokenizer_assets(src: Path, out: Path) -> None:
+    """Copy tokenizer/chat assets as real files (no symlinks).
+
+    NVIDIA Qwen3 NVFP4 keeps chat_template in chat_template.jinja; omitting it
+    makes tokenizer.chat_template None and lighteval falls back to raw prompts.
+    """
+    missing = [name for name in TOKENIZER_ASSET_NAMES if not (src / name).is_file()]
+    if missing:
+        raise FileNotFoundError(
+            f"source snapshot missing tokenizer assets {missing}: {src}"
+        )
+    for name in TOKENIZER_ASSET_NAMES:
+        target = out / name
+        if target.exists() or target.is_symlink():
+            target.unlink()
+        shutil.copy2(src / name, target)
 
 
 def _load_diag(spec, diag_mode: str, z: dict[str, torch.Tensor]):
@@ -132,16 +163,7 @@ def materialize_moe_checkpoint(
     if state.get("model_type") != "qwen3_moe":
         raise ValueError("MoE materializer requires schema v2 model_type=qwen3_moe")
     _copy_json_without_quantization(src / "config.json", out / "config.json")
-    for name in ("tokenizer.json", "tokenizer_config.json", "generation_config.json", "special_tokens_map.json"):
-        p = src / name
-        if p.exists():
-            target = out / name
-            if target.exists():
-                target.unlink()
-            try:
-                target.symlink_to(p)
-            except OSError:
-                shutil.copy2(p, target)
+    _copy_tokenizer_assets(src, out)
 
     weight_map: dict[str, str] = {}
     _copy_non_layer_tensors(src, out, weight_map)
@@ -247,16 +269,7 @@ def materialize_moe_identity_checkpoint(
     src = Path(source_snapshot)
     out = ensure_dir(output_dir)
     _copy_json_without_quantization(src / "config.json", out / "config.json")
-    for name in ("tokenizer.json", "tokenizer_config.json", "generation_config.json", "special_tokens_map.json"):
-        p = src / name
-        if p.exists():
-            target = out / name
-            if target.exists():
-                target.unlink()
-            try:
-                target.symlink_to(p)
-            except OSError:
-                shutil.copy2(p, target)
+    _copy_tokenizer_assets(src, out)
 
     cfg = json.loads((src / "config.json").read_text(encoding="utf-8"))
     num_layers = int(cfg["num_hidden_layers"])

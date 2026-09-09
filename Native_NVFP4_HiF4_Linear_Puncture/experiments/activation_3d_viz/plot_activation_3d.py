@@ -86,7 +86,14 @@ def select_module_names(
 
 
 def viz_results_dir(run_id: str) -> Path:
-    return EXPERIMENT_ROOT / "results" / "activation_3d_viz" / run_id
+    return (
+        EXPERIMENT_ROOT
+        / "results"
+        / "qwen3_8b_qat"
+        / "mechanism_analysis"
+        / "activation_3d_viz"
+        / run_id
+    )
 
 
 def _module_seed(module_name: str, seed: int) -> int:

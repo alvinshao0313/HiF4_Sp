@@ -18,7 +18,12 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import torch
 
-from Native_NVFP4_HiF4_Linear_Puncture.src.config import AppConfig, load_config, results_dir
+from Native_NVFP4_HiF4_Linear_Puncture.src.config import (
+    EXPERIMENT_ROOT,
+    AppConfig,
+    load_config,
+    results_dir,
+)
 from Native_NVFP4_HiF4_Linear_Puncture.src.grid_scale_validation import (
     REQUIRED_FORMAL_LAYERS,
     REQUIRED_MODULE_COUNT,
@@ -755,7 +760,9 @@ def run_diag_group_stats(
             f"highlight modules incomplete: {sorted(highlight_val)} vs {list(HIGHLIGHT_MODULES)}"
         )
 
-    run_dir = ensure_dir(results_dir(run_id))
+    run_dir = ensure_dir(
+        EXPERIMENT_ROOT / "results" / "qwen3_8b_qat" / "mechanism_analysis" / run_id
+    )
     per_df = pd.DataFrame(module_rows, columns=PER_MODULE_COLUMNS)
     per_df.to_csv(run_dir / "diag_group_stats_per_module.csv", index=False)
     k_df = pd.DataFrame(kgroup_rows, columns=PER_KGROUP_COLUMNS)

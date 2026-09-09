@@ -32,6 +32,8 @@
 
 ## 安装
 
+完整步骤、验证和排错见 [docs/install.md](docs/install.md)。最短路径：
+
 ```bash
 git clone <this-repo-url>
 cd HiF4_Sp

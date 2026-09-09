@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the long-trajectory pipeline in a new session, independent of the caller terminal."""
+"""Formal long-trajectory pipeline: isolated free-run + probe plan + real vLLM hooks."""
 
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ from Native_NVFP4_HiF4_Linear_Puncture.experiments.long_trajectory_stability.con
 )
 
 EXP_DIR = Path(__file__).resolve().parent
+HOOKS = EXP_DIR / "real_vllm_hooks"
 HIF4_PYTHON = Path(sys.executable)
 
 
@@ -28,7 +29,6 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--run_root", required=True)
     p.add_argument("--stage", choices=["smoke", "formal"], required=True)
     p.add_argument("--phasea_root", default=str(DEFAULT_PHASEA_ROOT))
-    p.add_argument("--max_parallel", type=int, default=1)
     p.add_argument("--detach", action="store_true")
     return p.parse_args()
 
@@ -82,44 +82,48 @@ def smoke(args: argparse.Namespace) -> None:
     run_cmd(
         [
             str(HIF4_PYTHON),
-            str(EXP_DIR / "run_free_run_matrix.py"),
+            str(HOOKS / "run_isolated_free_run_matrix.py"),
             "--run_root",
             run_root,
+            "--variants",
+            "E0",
+            "E1",
             "--max_samples",
-            "4",
+            "2",
             "--max_new_tokens",
-            "1024",
-            "--max_parallel",
-            str(args.max_parallel),
+            "512",
+            "--sample_keys",
+            "n159_c94220492",
+            "n346_c216392826",
         ]
     )
     run_cmd(
         [
             str(HIF4_PYTHON),
-            str(EXP_DIR / "prepare_analysis.py"),
+            str(HOOKS / "run_hook_matrix.py"),
             "--run_root",
             run_root,
-            "--num_samples",
-            "2",
-            "--probes_per_bin",
-            "2",
-            "--max_decode_index",
-            "511",
+            "--variants",
+            "E0",
+            "E1",
+            "--mode",
+            "forced_core",
+            "--smoke_focus",
         ]
     )
     run_cmd(
         [
             str(HIF4_PYTHON),
-            str(EXP_DIR / "run_semantic_matrix.py"),
+            str(HOOKS / "validate_capture.py"),
             "--run_root",
-            run_root,
-            "--phasea_root",
-            args.phasea_root,
-            "--max_parallel",
-            str(args.max_parallel),
+            f"{run_root}/E0/forced_core",
+            "--variant",
+            "E0",
+            "--mode",
+            "forced_core",
+            "--require_e0_target_top1",
         ]
     )
-    run_cmd([str(HIF4_PYTHON), str(EXP_DIR / "summarize.py"), "--run_root", run_root])
 
 
 def formal(args: argparse.Namespace) -> None:
@@ -127,31 +131,29 @@ def formal(args: argparse.Namespace) -> None:
     run_cmd(
         [
             str(HIF4_PYTHON),
-            str(EXP_DIR / "run_free_run_matrix.py"),
+            str(HOOKS / "run_isolated_free_run_matrix.py"),
             "--run_root",
             run_root,
+            "--variants",
+            "E0",
+            "E1",
+            "E2",
+            "E3",
+            "E4",
             "--max_samples",
             str(DEFAULT_FREE_RUN_SAMPLES),
             "--max_new_tokens",
             str(DEFAULT_FREE_RUN_MAX_NEW_TOKENS),
-            "--max_parallel",
-            str(args.max_parallel),
         ]
     )
-    run_cmd([str(HIF4_PYTHON), str(EXP_DIR / "prepare_analysis.py"), "--run_root", run_root])
     run_cmd(
         [
             str(HIF4_PYTHON),
-            str(EXP_DIR / "run_semantic_matrix.py"),
+            str(HOOKS / "prepare_isolated_analysis.py"),
             "--run_root",
             run_root,
-            "--phasea_root",
-            args.phasea_root,
-            "--max_parallel",
-            str(args.max_parallel),
         ]
     )
-    run_cmd([str(HIF4_PYTHON), str(EXP_DIR / "summarize.py"), "--run_root", run_root])
 
 
 def main() -> None:
@@ -162,7 +164,11 @@ def main() -> None:
         detach_and_reexec(run_root)
         if os.environ.get("HIF4_PIPELINE_DETACHED") != "1":
             return
-    print(f"[pipeline] stage={args.stage} run_root={run_root} pid={os.getpid()} gpu_pool={os.environ.get('GPU_POOL')}", flush=True)
+    print(
+        f"[pipeline] stage={args.stage} run_root={run_root} pid={os.getpid()} "
+        f"gpu_pool={os.environ.get('GPU_POOL')}",
+        flush=True,
+    )
     if args.stage == "smoke":
         smoke(args)
     else:

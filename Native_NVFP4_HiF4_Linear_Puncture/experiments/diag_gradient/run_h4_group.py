@@ -36,6 +36,7 @@ import torch
 
 from Native_NVFP4_HiF4_Linear_Puncture.experiments.diag_gradient.common import (
     DEFAULT_CAPTURE_RUN_ID,
+    diag_results_dir,
     DEFAULT_LR,
     DEFAULT_STEPS,
     EQUIV_CHECK_ROWS,
@@ -217,7 +218,7 @@ def run(
 
     config = load_config(config_path)
     capture_dir = results_dir(capture_run_id)
-    out_dir = ensure_dir(results_dir(run_id))
+    out_dir = ensure_dir(diag_results_dir(run_id))
     scales_dir = ensure_dir(out_dir / "group_scales_grad")
 
     snapshot = resolve_local_snapshot(config.model.model_id)
