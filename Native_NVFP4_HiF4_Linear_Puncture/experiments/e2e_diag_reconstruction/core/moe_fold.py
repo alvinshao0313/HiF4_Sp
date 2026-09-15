@@ -138,21 +138,31 @@ def fold_online_moe_layer_state(
     return replace(state, attention=attention, experts=experts)
 
 
+def folded_router_logits_from_pre_dgu_input(
+    hidden_states: torch.Tensor,
+    router_weight: torch.Tensor,
+    diag_state: MoEFusableDiagState,
+) -> torch.Tensor:
+    """BF16 folded router logits from pre-D_GU input: scale input, transform weight, matmul."""
+    d = diag_state.d_gu().to(device=hidden_states.device)
+    hidden_bf16 = hidden_states.to(torch.bfloat16)
+    folded_weight = transform_router_weight(router_weight, d).to(
+        device=hidden_states.device,
+        dtype=torch.bfloat16,
+    )
+    return (hidden_bf16 * d.to(dtype=torch.bfloat16)) @ folded_weight.T
+
+
 def router_compensation_logits(
     hidden_states: torch.Tensor,
     router_weight: torch.Tensor,
     diag_state: MoEFusableDiagState,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Return native and folded BF16 router logits on the same pre-D_GU input."""
-    d = diag_state.d_gu().to(device=hidden_states.device)
     hidden_bf16 = hidden_states.to(torch.bfloat16)
     router_bf16 = router_weight.to(device=hidden_states.device, dtype=torch.bfloat16)
     original = hidden_bf16 @ router_bf16.T
-    folded_weight = transform_router_weight(router_weight, d).to(
-        device=hidden_states.device,
-        dtype=torch.bfloat16,
-    )
-    folded = (hidden_bf16 * d.to(dtype=torch.bfloat16)) @ folded_weight.T
+    folded = folded_router_logits_from_pre_dgu_input(hidden_states, router_weight, diag_state)
     return original, folded
 
 
