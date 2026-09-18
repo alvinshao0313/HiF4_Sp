@@ -1,3 +1,0 @@
-# 优先使用已有 hif4 conda 环境（已含 torch/safetensors）。
-torch>=2.2
-safetensors>=0.4

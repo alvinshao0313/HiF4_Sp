@@ -39,6 +39,7 @@ from Native_NVFP4_HiF4_Linear_Puncture.src.checkpoint import resolve_local_snaps
 from .config import S1K_SHARED_CALIB, WIKITEXT2_SHARED_CALIB
 from .router_objective import build_production_topk_teacher
 from .run_state import atomic_write_json
+from .attention_semantics import causal_attention_mask, TRAINING_PATH_VERSION
 
 
 STATUS_EMPTY = "EMPTY"
@@ -138,6 +139,8 @@ def build_router_teacher_cache(
     run_root = Path(run_root)
     out_dir = _cache_dir(run_root)
     out_dir.mkdir(parents=True, exist_ok=True)
+    if (out_dir / "manifest.json").exists():
+        raise RuntimeError("refusing to overwrite an existing Router teacher cache; use a separate explicit phase")
 
     layer_list = sorted({int(x) for x in layers})
     train_ids = [str(x) for x in objective_split_manifest["train_ids"]]
@@ -150,6 +153,7 @@ def build_router_teacher_cache(
 
     if not layer_list:
         manifest = {
+            "training_path_version": TRAINING_PATH_VERSION,
             "model_path": model_path,
             "layers": [],
             "num_experts": None,
@@ -215,7 +219,7 @@ def build_router_teacher_cache(
     for layer_idx in range(0, max_layer + 1):
         state = load_qwen3_moe_layer_state(snapshot, layer_idx, device)
         try:
-            native = NativeQwen3MoELayerRuntime(state).to(device).eval()
+            native = NativeQwen3MoELayerRuntime(state, is_causal=True, o_proj_tp_size=2).to(device).eval()
             nxt = ProgressiveHiddenCache()
             capture = layer_idx in collected
             for batch in build_validation_batches(all_samples, int(batch_size)):
@@ -307,6 +311,8 @@ def build_router_teacher_cache(
         "val_ids": val_ids,
         "source_ratio": source_ratio,
         "status": STATUS_COMPLETE,
+        "training_path_version": TRAINING_PATH_VERSION,
+        "execution_path": "causal_training_runtime; actual-vLLM equivalence requires independent audit",
     }
     atomic_write_json(out_dir / "manifest.json", manifest)
     return manifest
@@ -321,6 +327,14 @@ def load_router_teacher_split(
     path = Path(cache_dir) / f"{_layer_tag(layer)}_{split}.pt"
     if not path.is_file():
         raise FileNotFoundError(f"missing router teacher cache: {path}")
+    manifest_path=Path(cache_dir)/'manifest.json'
+    if manifest_path.exists():
+        from .run_state import read_json
+        manifest=read_json(manifest_path)
+        if manifest.get('training_path_version')==4:
+            from .candidate_runtime import sha256
+            if sha256(path)!=manifest['files_sha256'][path.name]:
+                raise RuntimeError('actual Router teacher content hash changed')
     payload = torch.load(path, map_location="cpu", weights_only=False)
     if not isinstance(payload, dict):
         raise RuntimeError(f"invalid teacher cache type at {path}")

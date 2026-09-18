@@ -60,6 +60,7 @@ def build_real_vllm(
     max_num_batched_tokens: int | None = None,
     seed: int | None = None,
     enable_forced_trajectory_processor: bool = True,
+    materialized_model_path: Path | None = None,
 ) -> tuple[LLM, dict]:
     """Build real vLLM.
 
@@ -69,6 +70,17 @@ def build_real_vllm(
     variant, spec, runtime_abi_version = resolve_real_vllm_spec(
         variant_name, model_path=model_path, phasea_root=phasea_root
     )
+    if materialized_model_path is not None:
+        from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.evaluation.vllm_runner import VllmEvalSpec
+        if variant_name != "E1":
+            raise ValueError("candidate override requires the E1 runtime")
+        candidate = Path(materialized_model_path).resolve()
+        sidecar = candidate / "hif4_runtime_spec.pt"
+        runtime = torch.load(sidecar, map_location="cpu", weights_only=False)
+        if runtime["runtime_abi_version"] != 3 or runtime["use_r64"]:
+            raise RuntimeError("candidate must use ABI 3 without R64")
+        spec = VllmEvalSpec(candidate, "none", True, sidecar, False)
+        runtime_abi_version = 3
     # Real vLLM apply_model() RPCs callables to TP workers via msgpack.
     # Custom hook install/begin/flush functions require the documented pickle
     # fallback; this does not change model math or production kernels.

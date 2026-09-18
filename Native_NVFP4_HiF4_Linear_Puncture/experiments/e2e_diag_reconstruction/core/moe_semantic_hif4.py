@@ -60,9 +60,25 @@ def _rms_norm(x: torch.Tensor, weight: torch.Tensor, eps: float) -> torch.Tensor
     return normed.to(dtype) * weight.to(device=x.device, dtype=dtype)
 
 
-def native_nvfp4_linear(x: torch.Tensor, weight_fp32: torch.Tensor, input_global_scale_inv: torch.Tensor) -> torch.Tensor:
+def _row_parallel_linear(x: torch.Tensor, weight: torch.Tensor, tp_size: int) -> torch.Tensor:
+    """Match TP1 or TP2 partial GEMM rounding before the BF16 reduction.
+
+    More than two ranks need the actual collective reduction topology and are
+    deliberately unsupported here. Autograd flows through both partial GEMMs.
+    """
+    if tp_size == 1:
+        return F.linear(x, weight)
+    if tp_size != 2 or x.shape[-1] % 2 or weight.shape[-1] != x.shape[-1]:
+        raise ValueError('row-parallel emulation requires valid TP1/TP2 dimensions')
+    partials = [F.linear(a.contiguous(), b.contiguous())
+                for a, b in zip(x.chunk(2, -1), weight.chunk(2, -1))]
+    return partials[0] + partials[1]
+
+
+def native_nvfp4_linear(x: torch.Tensor, weight_fp32: torch.Tensor, input_global_scale_inv: torch.Tensor,
+                       *, tp_size: int = 1) -> torch.Tensor:
     x_qdq = qdq_native_nvfp4(x, input_global_scale_inv)
-    return F.linear(x_qdq, weight_fp32.to(device=x.device, dtype=x_qdq.dtype))
+    return _row_parallel_linear(x_qdq, weight_fp32.to(device=x.device, dtype=x_qdq.dtype), tp_size)
 
 
 def qdq_hif4_ste_bf16(x: torch.Tensor) -> torch.Tensor:
@@ -273,6 +289,7 @@ def forward_student_attention_proj(
     step_cache: StudentStepCache,
     use_ste: bool = True,
     head_dim: int | None = None,
+    o_proj_tp_size: int = 1,
 ) -> torch.Tensor:
     if isinstance(diag_state, MoEFusableDiagState):
         d_in, d_out = _attention_d_in_out(proj, diag_state, int(master_weight.shape[0]))
@@ -287,7 +304,8 @@ def forward_student_attention_proj(
         raise TypeError(f"unsupported diag_state={type(diag_state)!r}")
     a_h = qdq_hif4_ste_bf16(x_t) if use_ste else qdq_hif4_direct(x_t, output_dtype=torch.bfloat16)
     w_h = step_cache.cached_weight((proj, None), lambda: qdq_hif4_ste_bf16(w_t) if use_ste else qdq_hif4_direct(w_t, output_dtype=torch.bfloat16))
-    return F.linear(a_h.to(dtype=w_h.dtype), w_h)
+    return _row_parallel_linear(a_h.to(dtype=w_h.dtype), w_h,
+                                o_proj_tp_size if proj == 'o_proj' else 1)
 
 
 def _expert_d_in_out(
@@ -317,6 +335,7 @@ def forward_student_expert_proj(
     rot_order: str,
     step_cache: StudentStepCache,
     use_ste: bool = True,
+    weighted_tp2: torch.Tensor | None = None,
 ) -> torch.Tensor:
     if isinstance(diag_state, MoEFusableDiagState):
         d_in, d_out = _expert_d_in_out(proj, expert_idx, diag_state, int(master_weight.shape[0]))
@@ -331,6 +350,15 @@ def forward_student_expert_proj(
         raise TypeError(f"unsupported diag_state={type(diag_state)!r}")
     a_h = qdq_hif4_ste_bf16(x_t) if use_ste else qdq_hif4_direct(x_t, output_dtype=torch.bfloat16)
     w_h = step_cache.cached_weight((proj, int(expert_idx)), lambda: qdq_hif4_ste_bf16(w_t) if use_ste else qdq_hif4_direct(w_t, output_dtype=torch.bfloat16))
+    if weighted_tp2 is not None:
+        if proj != 'down_proj' or a_h.shape[-1] % 2:
+            raise ValueError('weighted TP2 is only defined for an even-width down projection')
+        # Production weights the FP32 accumulator BEFORE casting each TP
+        # partial to BF16. Casting the down output first changes the operation.
+        return torch.stack([
+            (F.linear(a.float(), w.float()) * weighted_tp2.float()).to(a_h.dtype)
+            for a, w in zip(a_h.chunk(2, -1), w_h.chunk(2, -1))
+        ])
     return F.linear(a_h.to(dtype=w_h.dtype), w_h)
 
 
@@ -353,6 +381,7 @@ def forward_student_routed_moe(
     rot_order: str,
     step_cache: StudentStepCache,
     use_ste: bool = True,
+    moe_tp_size: int = 1,
 ) -> StudentMoEOutput:
     flat = x.reshape(-1, x.shape[-1])
     router_weight = state.router_weight
@@ -367,8 +396,12 @@ def forward_student_routed_moe(
     routing_weights, selected_experts = torch.topk(probs, state.spec.top_k, dim=-1)
     if state.spec.norm_topk_prob:
         routing_weights = routing_weights / routing_weights.sum(dim=-1, keepdim=True)
-    routing_weights = routing_weights.to(router_logits.dtype)
+    if moe_tp_size not in (1, 2):
+        raise ValueError('MoE arithmetic supports TP1 or TP2')
+    if moe_tp_size == 1:
+        routing_weights = routing_weights.to(router_logits.dtype)
     output = torch.zeros_like(flat)
+    partials = [torch.zeros_like(flat, dtype=torch.float32) for _ in range(2)] if moe_tp_size == 2 else None
     counts = torch.zeros(state.spec.num_experts, dtype=torch.long, device=flat.device)
     for expert_idx in selected_experts.unique(sorted=True).tolist():
         expert = state.experts[int(expert_idx)]
@@ -387,8 +420,15 @@ def forward_student_routed_moe(
         down = forward_student_expert_proj(
             "down_proj", int(expert_idx), hidden, expert.down_proj, diag_state,
             use_r64=use_r64, rot_order=rot_order, step_cache=step_cache, use_ste=use_ste,
+            weighted_tp2=routing_weights[token_idx, topk_pos, None] if moe_tp_size == 2 else None,
         )
-        output.index_add_(0, token_idx, down.to(output.dtype) * routing_weights[token_idx, topk_pos, None])
+        if partials is None:
+            output.index_add_(0, token_idx, down.to(output.dtype) * routing_weights[token_idx, topk_pos, None])
+        else:
+            for rank in (0, 1):
+                partials[rank].index_add_(0, token_idx, down[rank].float())
+    if partials is not None:
+        output = partials[0].to(flat.dtype) + partials[1].to(flat.dtype)
     return StudentMoEOutput(
         output.reshape_as(x),
         router_logits,
@@ -434,7 +474,7 @@ def _sdpa_attention_forward(
         value_states,
         attn_mask=attention_mask,
         dropout_p=dropout if module.training else 0.0,
-        is_causal=False,
+        is_causal=bool(getattr(module, "is_causal", False)) and attention_mask is None,
         scale=scaling,
     )
     return attn_output.transpose(1, 2).contiguous()
@@ -443,8 +483,12 @@ def _sdpa_attention_forward(
 class NativeQwen3MoELayerRuntime(nn.Module):
     """One lazy-materialized native layer with vLLM-aligned NVFP4 QDQ/GEMM."""
 
-    def __init__(self, state: MoELayerMasterState, *, rms_norm_eps: float = 1e-6) -> None:
+    def __init__(self, state: MoELayerMasterState, *, rms_norm_eps: float = 1e-6,
+                 is_causal: bool = False, o_proj_tp_size: int = 1) -> None:
         super().__init__()
+        if o_proj_tp_size not in (1, 2):
+            raise ValueError('O projection supports TP1 or TP2')
+        self.o_proj_tp_size = o_proj_tp_size
         self.state = state
         self.rms_norm_eps = float(rms_norm_eps)
         config = Qwen3MoeConfig(
@@ -463,6 +507,7 @@ class NativeQwen3MoELayerRuntime(nn.Module):
         self._attention_view = SimpleNamespace(
             num_key_value_groups=state.spec.num_attention_heads // state.spec.num_key_value_heads,
             training=False,
+            is_causal=bool(is_causal),
         )
 
     def attention_projections(
@@ -491,7 +536,8 @@ class NativeQwen3MoELayerRuntime(nn.Module):
             dropout=0.0,
         )
         o_input = out.reshape(*x.shape[:-1], -1).contiguous()
-        o = native_nvfp4_linear(o_input, state.attention["o_proj"], state.attention_metadata["o_proj"].input_global_scale_inv)
+        o = native_nvfp4_linear(o_input, state.attention["o_proj"], state.attention_metadata["o_proj"].input_global_scale_inv,
+                               tp_size=self.o_proj_tp_size)
         return NativeAttentionProjections(q=q, k=k, v=v, o_input=o_input, o=o)
 
     def routed_moe(self, x: torch.Tensor) -> NativeMoEForward:
@@ -555,8 +601,17 @@ class StudentQwen3MoELayerRuntime(nn.Module):
         use_r64: bool,
         rot_order: str,
         rms_norm_eps: float = 1e-6,
+        is_causal: bool = False,
+        o_proj_tp_size: int = 1,
+        moe_tp_size: int = 1,
     ) -> None:
         super().__init__()
+        if o_proj_tp_size not in (1, 2):
+            raise ValueError('O projection supports TP1 or TP2')
+        self.o_proj_tp_size = o_proj_tp_size
+        if moe_tp_size not in (1, 2):
+            raise ValueError('MoE arithmetic supports TP1 or TP2')
+        self.moe_tp_size = moe_tp_size
         self.state = state
         self.diag_state = diag_state
         self.use_r64 = bool(use_r64)
@@ -565,6 +620,7 @@ class StudentQwen3MoELayerRuntime(nn.Module):
         self._attention_view = SimpleNamespace(
             num_key_value_groups=state.spec.num_attention_heads // state.spec.num_key_value_heads,
             training=False,
+            is_causal=bool(is_causal),
         )
 
     def attention(
@@ -615,6 +671,7 @@ class StudentQwen3MoELayerRuntime(nn.Module):
             step_cache=step_cache,
             use_ste=use_ste,
             head_dim=state.spec.head_dim,
+            o_proj_tp_size=self.o_proj_tp_size,
         )
 
     def forward_to_router_input(
@@ -669,6 +726,7 @@ class StudentQwen3MoELayerRuntime(nn.Module):
             rot_order=self.rot_order,
             step_cache=cache,
             use_ste=use_ste,
+            moe_tp_size=self.moe_tp_size,
         )
         return StudentMoEOutput(
             residual + moe.output,

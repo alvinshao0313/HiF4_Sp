@@ -41,7 +41,7 @@ def run_variant_structural_validation(
     model_path: str,
     phasea_root: Path,
     variants: list[str] | None = None,
-    best_candidate_variants: list[str] | None = None,
+    best_candidate_variants: list[dict] | None = None,
 ) -> dict[str, Any]:
     """Capture + structural analyze E1/E2/E3/E4 (+ optional best candidates) on same 64-state cohort."""
     run_root = Path(run_root)
@@ -56,41 +56,42 @@ def run_variant_structural_validation(
 
     variants = list(variants or ["E1", "E2", "E3", "E4"])
     best_candidate_variants = list(best_candidate_variants or [])
-    all_variants = list(dict.fromkeys(variants + best_candidate_variants))
+    candidate_by_name = {v['name']: v for v in best_candidate_variants}
+    if len(candidate_by_name) != len(best_candidate_variants) or set(candidate_by_name) & set(variants):
+        raise ValueError('duplicate candidate names')
+    all_variants = variants + list(candidate_by_name)
+    from .objective_holdout import run_capture_job
+    from .candidate_runtime import sha256
 
     # E0 reference is required for pair analysis; reuse S1 capture if present.
     e0_capture = run_root / "10_capture" / "E0"
     if not (e0_capture / "hooks").is_dir():
-        capture_variant_states(
-            variant="E0",
-            cohort_path=cohort_path,
-            output_root=e0_capture,
-            model_path=model_path,
-            phasea_root=Path(phasea_root),
-            capture_level="core",
-            gpu_memory_utilization=0.90,
-        )
+        raise RuntimeError('S5 requires completed S1 E0 capture')
 
     summary: dict[str, Any] = {"variants": {}, "n_states": len(states)}
     for variant in all_variants:
         v_root = out_dir / "captures" / variant
-        capture_variant_states(
-            variant=variant,
-            cohort_path=cohort_path,
-            output_root=v_root,
-            model_path=model_path,
-            phasea_root=Path(phasea_root),
-            capture_level="core",
-            gpu_memory_utilization=0.90,
-        )
+        runtime_variant = 'E1' if variant in candidate_by_name else variant
+        job = {'variant': runtime_variant, 'label': variant, 'model_path': model_path,
+               'phasea_root': str(phasea_root), 'cohort': str(cohort_path),
+               'cohort_sha256': sha256(cohort_path), 'output_root': str(v_root),
+               'reference_root': str(e0_capture), 'layers': [], 'causal_source_by_layer': {}}
+        if variant in candidate_by_name:
+            candidate = candidate_by_name[variant]
+            for entry in candidate['checkpoints'].values():
+                if sha256(Path(entry['path'])) != entry['sha256']:
+                    raise RuntimeError('candidate checkpoint changed before validation')
+            job['materialized_model_path'] = candidate['model_dir']
+            job['checkpoints'] = candidate['checkpoints']
+        run_capture_job(job, log_path=run_root / f'logs/structural_{variant}.log')
         structural_rows = []
         for meta in states:
             key = meta["sample_key"]
             di = int(meta["decode_index"])
             e0_recs = load_rank_records(e0_capture / "hooks", "E0", key, 0)
-            v_recs = load_rank_records(v_root / "hooks", variant, key, 0)
+            v_recs = load_rank_records(v_root / "hooks", runtime_variant, key, 0)
             e0_logits = load_raw_logits(e0_capture / "raw_logits", "E0", key, di, 0)
-            v_logits = load_raw_logits(v_root / "raw_logits", variant, key, di, 0)
+            v_logits = load_raw_logits(v_root / "raw_logits", runtime_variant, key, di, 0)
             structural_rows.append(
                 analyze_state_pair(
                     sample_meta=meta,
@@ -102,8 +103,10 @@ def run_variant_structural_validation(
             )
         write_structural_reports(out_dir / "structural" / variant, structural_rows)
         # Aggregate key metrics for the comparison table.
-        kappas = [float(r.get("kappa_all") or r.get("kappa") or 0.0) for r in structural_rows]
-        kls = [float(r.get("kl_exact") or r.get("logit_kl") or 0.0) for r in structural_rows]
+        if not all(r['ledger_pass'] for r in structural_rows):
+            raise RuntimeError('structural residual identity failed')
+        kappas = [float(r['kappa_all']) for r in structural_rows]
+        kls = [float(r['kl_exact']) for r in structural_rows]
         summary["variants"][variant] = {
             "n_states": len(structural_rows),
             "mean_kappa": sum(kappas) / max(len(kappas), 1),

@@ -75,6 +75,7 @@ from .router_teacher_cache import (
     slice_router_logits_by_lengths,
 )
 from .run_state import atomic_write_json, read_json, read_jsonl
+from .attention_semantics import causal_attention_mask, TRAINING_PATH_VERSION
 
 
 LOSS_O0 = "O0"
@@ -219,10 +220,12 @@ def _native_layer_parts(
     runtime: NativeQwen3MoELayerRuntime,
     hidden: torch.Tensor,
     position_embeddings: tuple[torch.Tensor, torch.Tensor],
+    *,
+    attention_mask: torch.Tensor | None,
 ) -> dict[str, torch.Tensor]:
     residual = hidden
     normed = _rms_norm(hidden, runtime.state.input_layernorm_weight, runtime.rms_norm_eps)
-    attn = runtime.attention_projections(normed, None, position_embeddings).o
+    attn = runtime.attention_projections(normed, attention_mask, position_embeddings).o
     post_attn = residual + attn
     normed_moe = _rms_norm(post_attn, runtime.state.post_attention_layernorm_weight, runtime.rms_norm_eps)
     moe = runtime.routed_moe(normed_moe)
@@ -233,6 +236,7 @@ def _native_layer_parts(
         "moe_branch": moe.output,
         "output": output,
         "router_logits": moe.router_logits,
+        "moe_input": normed_moe,
     }
 
 
@@ -242,16 +246,17 @@ def _student_layer_parts(
     position_embeddings: tuple[torch.Tensor, torch.Tensor],
     *,
     use_ste: bool,
+    attention_mask: torch.Tensor | None,
 ) -> dict[str, torch.Tensor | StudentMoEOutput]:
     """Single student forward; expose attn/moe parts without double compute."""
     cache = StudentStepCache.new()
-    post_attn, normed = runtime.forward_to_router_input(
-        hidden,
-        attention_mask=None,
-        position_embeddings=position_embeddings,
-        step_cache=cache,
+    normed_attn = _rms_norm(hidden, runtime.state.input_layernorm_weight, runtime.rms_norm_eps)
+    attn = runtime.attention(
+        normed_attn, attention_mask, position_embeddings, cache,
         use_ste=use_ste,
     )
+    post_attn = hidden + attn
+    normed = _rms_norm(post_attn, runtime.state.post_attention_layernorm_weight, runtime.rms_norm_eps)
     moe = forward_student_routed_moe(
         normed,
         runtime.state,
@@ -260,6 +265,7 @@ def _student_layer_parts(
         rot_order=runtime.rot_order,
         step_cache=cache,
         use_ste=use_ste,
+        moe_tp_size=runtime.moe_tp_size,
     )
     output = post_attn + moe.output
     out = StudentMoEOutput(
@@ -271,7 +277,7 @@ def _student_layer_parts(
         router_input=moe.router_input,
     )
     return {
-        "attn_branch": post_attn - hidden,
+        "attn_branch": attn,
         "post_attn": post_attn,
         "moe_branch": moe.output,
         "output": output,
@@ -279,6 +285,26 @@ def _student_layer_parts(
         "router_input": moe.router_input,
         "student_out": out,
     }
+
+
+def _student_local_moe(runtime: StudentQwen3MoELayerRuntime, e0_moe_input: torch.Tensor,
+                       *, use_ste: bool) -> StudentMoEOutput:
+    """O1_M uses exactly the teacher MoE input; no student Attention here."""
+    return forward_student_routed_moe(
+        e0_moe_input, runtime.state, runtime.diag_state,
+        use_r64=runtime.use_r64, rot_order=runtime.rot_order,
+        step_cache=StudentStepCache.new(), use_ste=use_ste,
+        moe_tp_size=runtime.moe_tp_size,
+    )
+
+
+def _student_local_attention(runtime: StudentQwen3MoELayerRuntime, hidden: torch.Tensor,
+                             position_embeddings: tuple[torch.Tensor, torch.Tensor],
+                             *, use_ste: bool) -> torch.Tensor:
+    """Raw Attention branch with complete causal history; no unused MoE graph."""
+    normed = _rms_norm(hidden, runtime.state.input_layernorm_weight, runtime.rms_norm_eps)
+    return runtime.attention(normed, None, position_embeddings, StudentStepCache.new(),
+                             use_ste=use_ste)
 
 
 def _propagate_identity_student(
@@ -290,15 +316,18 @@ def _propagate_identity_student(
     device: torch.device,
     batch_size: int,
     layer_idx: int,
+    diag_snapshot: dict[str, torch.Tensor] | None = None,
 ) -> ProgressiveHiddenCache:
     """One progressive step with identity HiF4 student (z=0), no STE."""
     state = load_qwen3_moe_layer_state(snapshot, layer_idx, device)
     try:
         diag = build_moe_diag_state(state.spec, "fusable").to(device)
         assert isinstance(diag, MoEFusableDiagState)
+        if diag_snapshot is not None:
+            diag.load_snapshot(diag_snapshot)
         for p in diag.parameters():
             p.requires_grad_(False)
-        student = StudentQwen3MoELayerRuntime(state, diag, use_r64=False, rot_order="diag_then_r64").to(device).eval()
+        student = StudentQwen3MoELayerRuntime(state, diag, use_r64=False, rot_order="diag_then_r64", is_causal=True, o_proj_tp_size=2, moe_tp_size=2).to(device).eval()
         nxt = ProgressiveHiddenCache()
         for batch in build_validation_batches(samples, batch_size):
             packed = collator(batch)
@@ -330,6 +359,7 @@ def _build_layer_caches(
     batch_size: int,
     layer: int,
     need_e1: bool,
+    upstream_snapshots: dict[int, dict[str, torch.Tensor]] | None = None,
 ) -> dict[str, Any]:
     """Build frozen E0 (and optional E1) caches at the selected layer."""
     x_e0 = build_initial_moe_hidden_cache(snapshot, samples, collator, device, batch_size)
@@ -344,19 +374,21 @@ def _build_layer_caches(
     e0_attn: dict[str, torch.Tensor] = {}
     e0_post_attn: dict[str, torch.Tensor] = {}
     e0_moe: dict[str, torch.Tensor] = {}
+    e0_moe_input: dict[str, torch.Tensor] = {}
     e1_input: dict[str, torch.Tensor] = {}
 
     for layer_idx in range(0, layer + 1):
         state = load_qwen3_moe_layer_state(snapshot, layer_idx, device)
         try:
-            native = NativeQwen3MoELayerRuntime(state).to(device).eval()
+            native = NativeQwen3MoELayerRuntime(state, is_causal=True, o_proj_tp_size=2).to(device).eval()
             nxt_e0 = ProgressiveHiddenCache()
             for batch in build_validation_batches(samples, batch_size):
                 packed = collator(batch)
                 sample_ids = [s.sample_id for s in batch]
                 hidden, _ = x_e0.assemble(sample_ids, device)
                 call = build_qwen3_moe_layer_call(str(snapshot), hidden)
-                parts = _native_layer_parts(native, hidden, call.position_embeddings)
+                parts = _native_layer_parts(native, hidden, call.position_embeddings,
+                                            attention_mask=None)
                 for i, sample in enumerate(batch):
                     n = int(packed["lengths"][i].item())
                     sid = sample.sample_id
@@ -366,6 +398,7 @@ def _build_layer_caches(
                         e0_attn[sid] = parts["attn_branch"][i, :n].detach().cpu().to(torch.bfloat16).contiguous()
                         e0_post_attn[sid] = parts["post_attn"][i, :n].detach().cpu().to(torch.bfloat16).contiguous()
                         e0_moe[sid] = parts["moe_branch"][i, :n].detach().cpu().to(torch.bfloat16).contiguous()
+                        e0_moe_input[sid] = parts["moe_input"][i, :n].detach().cpu().to(torch.bfloat16).contiguous()
                     nxt_e0.store(sid, parts["output"][i, :n], n)
             x_e0 = nxt_e0
         finally:
@@ -382,6 +415,7 @@ def _build_layer_caches(
                     device=device,
                     batch_size=batch_size,
                     layer_idx=layer_idx,
+                    diag_snapshot=(upstream_snapshots or {}).get(layer_idx),
                 )
             else:
                 for batch in build_validation_batches(samples, batch_size):
@@ -400,6 +434,7 @@ def _build_layer_caches(
         "e0_attn": e0_attn,
         "e0_post_attn": e0_post_attn,
         "e0_moe": e0_moe,
+        "e0_moe_input": e0_moe_input,
         "e1_input": e1_input,
     }
 
@@ -463,15 +498,11 @@ def _assert_router_helper_identity(
         )
 
 
-def _lookup_router_causal_contribution(run_root: Path, layer: int) -> float | None:
-    path = Path(run_root) / "40_router" / "router_intervention_rows.jsonl"
-    if not path.is_file():
-        return None
-    rows = read_jsonl(path)
-    vals = [float(r["C_router"]) for r in rows if int(r.get("layer", -1)) == int(layer) and "C_router" in r]
-    if not vals:
-        return None
-    return float(sum(vals) / len(vals))
+def accumulate_validation_metrics(totals: dict[str, float], loss: float, metrics: dict[str, float]) -> None:
+    totals['loss'] = totals.get('loss', 0.0) + float(loss)
+    for key, value in metrics.items():
+        if key != 'loss':
+            totals[key] = totals.get(key, 0.0) + float(value)
 
 
 def _load_final_norm_and_lm_head(snapshot: Path, device: torch.device) -> tuple[torch.Tensor, torch.Tensor]:
@@ -586,7 +617,9 @@ def _o4_final_kl_mean(
             end = min(start + token_chunk_i, n)
             h_chunk = h_n[start:end].to(dtype=lm_head_weight.dtype)
             q_logits = F.linear(h_chunk, lm_head_weight)
-            p_logits = p_full[start:end].to(device=hidden.device, dtype=q_logits.dtype)
+            # Preserve actual teacher precision; the student's matmul dtype
+            # must not introduce another quantization of the teacher logits.
+            p_logits = p_full[start:end].to(device=hidden.device)
             # Scale token-mean KL back to sum over this microbatch.
             n_chunk = int(end - start)
             kl_sum = kl_sum + _kl_mean(p_logits.detach(), q_logits, vocab_chunk=vocab_chunk) * float(n_chunk)
@@ -626,8 +659,9 @@ def _o4_one_sample_kl(
         h_i,
         call_i.position_embeddings,
         use_ste=bool(train_mode),
+        attention_mask=None,
     )
-    y_final_i = _o4_subsequent_native(
+    y_final_i = _o4_subsequent_hif4(
         snapshot=snapshot,
         hidden=parts_i["output"].contiguous(),
         start_layer=layer + 1,
@@ -649,7 +683,7 @@ def _o4_one_sample_kl(
     return kl_i, int(n_tokens)
 
 
-def _o4_subsequent_native(
+def _o4_subsequent_hif4(
     *,
     snapshot: Path,
     hidden: torch.Tensor,
@@ -658,7 +692,7 @@ def _o4_subsequent_native(
     device: torch.device,
     use_checkpoint: bool | None = None,
 ) -> torch.Tensor:
-    """Forward through subsequent native layers; grads flow to `hidden` only.
+    """Forward through subsequent identity HiF4 layers; grads flow to hidden only.
 
     Always checkpoints by default. Entire O4 autograd must stay on one device —
     never put LM/KL on another GPU in the same loss graph as checkpoint.
@@ -674,12 +708,18 @@ def _o4_subsequent_native(
     def _one(h: torch.Tensor, layer_idx: int) -> torch.Tensor:
         st = load_qwen3_moe_layer_state(snapshot, layer_idx, device)
         try:
-            native = NativeQwen3MoELayerRuntime(st).to(device).eval()
+            diag = build_moe_diag_state(st.spec, "fusable").to(device)
+            for param in diag.parameters():
+                param.requires_grad_(False)
+            student = StudentQwen3MoELayerRuntime(st, diag, use_r64=False,
+                                                rot_order="diag_then_r64", is_causal=True, o_proj_tp_size=2, moe_tp_size=2).to(device).eval()
             call = build_qwen3_moe_layer_call(str(snapshot), h)
-            return native(
+            return student(
                 h,
                 attention_mask=None,
                 position_embeddings=call.position_embeddings,
+                step_cache=StudentStepCache.new(),
+                use_ste=True,
             ).output
         finally:
             release_qwen3_moe_layer_state(st)
@@ -736,6 +776,19 @@ def compute_o3_router_aux(
     return aux, metrics
 
 
+def _recipe_output_dir(run_root: Path, recipe: dict) -> Path:
+    if recipe.get("training_phase"):
+        from .corrected_phase import require_training_ready
+        require_training_ready(run_root, recipe)
+        return Path(recipe["output_dir"]).resolve()
+    if "output_dir" not in recipe:
+        return _candidate_dir(run_root, int(recipe["layer"]), str(recipe["loss"]))
+    out = Path(recipe["output_dir"]).resolve()
+    if not out.is_relative_to((run_root / "60_objective/topk_candidates").resolve()):
+        raise ValueError("progressive recipe must write inside this run's topk_candidates")
+    return out
+
+
 def train_selected_layer_recipe(
     *,
     recipe: dict,
@@ -746,24 +799,32 @@ def train_selected_layer_recipe(
     """Train one selected-layer recipe; save final checkpoint (no best-epoch pick)."""
     _reject_legacy_o3_tokens(recipe)
     run_root = Path(run_root)
+    if not recipe.get("training_phase"):
+        raise RuntimeError("legacy objective training is closed; use corrected_objectives_v3 and its alignment gate")
     layer = int(recipe["layer"])
     loss_name = str(recipe["loss"])
-    out_dir = ensure_dir(_candidate_dir(run_root, layer, loss_name))
+    out_dir = ensure_dir(_recipe_output_dir(run_root, recipe))
     lock_fh = _exclusive_recipe_lock(out_dir)
     try:
-        if recipe_artifacts_complete(out_dir):
+        from .corrected_phase import validated_completion
+        if validated_completion(out_dir, recipe):
+            if read_json(out_dir / "recipe.json") != recipe:
+                raise RuntimeError("completed recipe provenance differs; refusing stale checkpoint")
             return {
                 "status": "SKIPPED_COMPLETE",
                 "layer": layer,
                 "loss": loss_name,
                 "out_dir": str(out_dir),
             }
-        return _train_selected_layer_recipe_unlocked(
+        result = _train_selected_layer_recipe_unlocked(
             recipe=recipe,
             run_root=run_root,
             model_path=model_path,
             phasea_root=phasea_root,
         )
+        from .corrected_phase import completion_record
+        atomic_write_json(out_dir / "complete.json", completion_record(out_dir, recipe))
+        return result
     finally:
         lock_fh.close()
 
@@ -813,15 +874,38 @@ def _train_selected_layer_recipe_unlocked(
             raise RuntimeError(
                 f"router teacher cache status={manifest.get('status')!r}; need COMPLETE"
             )
+        if manifest.get("training_path_version") != recipe.get('training_path_version', TRAINING_PATH_VERSION):
+            raise RuntimeError("legacy noncausal Router teacher cache is invalid for new training; preserve and rebuild in a new explicit phase")
         if int(layer) not in {int(x) for x in manifest.get("layers", [])}:
             raise RuntimeError(f"layer {layer} absent from router teacher cache layers")
     else:
         cache_dir = None
 
-    out_dir = ensure_dir(_candidate_dir(run_root, layer, loss_name))
+    out_dir = ensure_dir(_recipe_output_dir(run_root, recipe))
     atomic_write_json(out_dir / "recipe.json", dict(recipe))
+    if recipe.get('training_path_version') == 4:
+        from .mechanism_phase import training_provenance
+        from .corrected_phase import write_frozen
+        write_frozen(out_dir / 'training_provenance.json', training_provenance(run_root, recipe))
+
+    upstream_snapshots = {}
+    if "upstream_checkpoints" in recipe:
+        from .candidate_runtime import sha256
+        if loss_name not in {LOSS_O2_A, LOSS_O2_M, LOSS_O3_FULL, LOSS_O3_TOPK}:
+            raise ValueError("progressive Top-K requires accumulation-aware objective")
+        for key, entry in recipe["upstream_checkpoints"].items():
+            earlier = int(key)
+            if not 0 <= earlier < layer:
+                raise ValueError("upstream checkpoint must precede training layer")
+            if sha256(Path(entry["path"])) != entry["sha256"]:
+                raise RuntimeError("upstream checkpoint changed")
+            payload = torch.load(entry["path"], map_location="cpu", weights_only=False)
+            if int(payload["layer"]) != earlier:
+                raise ValueError("upstream checkpoint layer mismatch")
+            upstream_snapshots[earlier] = payload["diag"]
 
     torch.manual_seed(seed)
+    torch.backends.cuda.matmul.allow_tf32 = False
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
@@ -845,16 +929,26 @@ def _train_selected_layer_recipe_unlocked(
         LOSS_JOINT,
     }
     t_cache0 = time.perf_counter()
-    caches = _build_layer_caches(
-        snapshot=snapshot,
-        samples=all_for_cache,
-        collator=collator,
-        device=device,
-        batch_size=batch_size,
-        layer=layer,
-        need_e1=need_e1,
-    )
+    if recipe.get("training_phase"):
+        from .actual_teacher import load_actual_layer_cache
+        caches = load_actual_layer_cache(Path(recipe["actual_teacher_root"]), layer=layer,
+                                         sample_ids=train_ids + val_ids)
+        if upstream_snapshots:
+            raise RuntimeError("corrected single-layer phase does not permit progressive upstream changes")
+    else:
+        raise RuntimeError("training requires versioned actual-path teacher caches")
     cache_build_s = time.perf_counter() - t_cache0
+    if "upstream_checkpoints" in recipe:
+        import hashlib
+        fingerprints = {sid: hashlib.sha256(t.contiguous().view(torch.uint8).numpy().tobytes()).hexdigest()
+                        for sid, t in caches["e1_input"].items()}
+        atomic_write_json(out_dir / "current_state_propagation.json", {
+            "status": "COMPLETE", "layer": layer,
+            "upstream_checkpoints": recipe["upstream_checkpoints"],
+            "input_sha256_by_sample": fingerprints,
+            "n_samples": len(fingerprints),
+            "method": "rebuild full upstream propagation using adopted DIAG snapshots; other layers identity HiF4",
+        })
 
     teacher_train = teacher_val = None
     if loss_name in O3_LOSSES:
@@ -889,6 +983,9 @@ def _train_selected_layer_recipe_unlocked(
             diag_state,
             use_r64=use_r64,
             rot_order=rot_order,
+            is_causal=True,
+            o_proj_tp_size=2,
+            moe_tp_size=2,
         ).to(device)
 
         trainable = [p for p in diag_state.parameters() if p.requires_grad]
@@ -905,58 +1002,11 @@ def _train_selected_layer_recipe_unlocked(
             # Entire O4 autograd (student/subsequent/LM/KL) must stay on one device.
             # Cross-device LM + checkpoint subsequent caused CUDA illegal memory access.
             norm_w, lm_w = _load_final_norm_and_lm_head(snapshot, device)
-            e0_final_logits = {}
-            # Continue E0 from selected-layer output through remaining native layers once.
-            x_rest = ProgressiveHiddenCache()
-            for sid, h in caches["e0_output"].items():
-                x_rest.store(sid, h, int(h.shape[0]))
-            for layer_idx in range(layer + 1, state.spec.num_layers):
-                st = load_qwen3_moe_layer_state(snapshot, layer_idx, device)
-                try:
-                    native = NativeQwen3MoELayerRuntime(st).to(device).eval()
-                    nxt = ProgressiveHiddenCache()
-                    for batch in build_validation_batches(all_for_cache, batch_size):
-                        packed = collator(batch)
-                        sids = [s.sample_id for s in batch]
-                        hidden, _ = x_rest.assemble(sids, device)
-                        call = build_qwen3_moe_layer_call(str(snapshot), hidden)
-                        with torch.no_grad():
-                            y = native(
-                                hidden,
-                                attention_mask=None,
-                                position_embeddings=call.position_embeddings,
-                            ).output
-                        for i, sample in enumerate(batch):
-                            n = int(packed["lengths"][i].item())
-                            nxt.store(sample.sample_id, y[i, :n], n)
-                    x_rest = nxt
-                finally:
-                    release_qwen3_moe_layer_state(st)
-            for batch in build_validation_batches(all_for_cache, max(1, min(batch_size, 2))):
-                packed = collator(batch)
-                sids = [s.sample_id for s in batch]
-                hidden, _ = x_rest.assemble(sids, device)
-                with torch.no_grad():
-                    lengths_b = packed["lengths"]
-                    for i, sample in enumerate(batch):
-                        n = int(lengths_b[i].item())
-                        h_i = hidden[i : i + 1, :n].contiguous()
-                        logits_i = _final_logits_from_hidden(
-                            h_i,
-                            torch.tensor([n], device=device),
-                            norm_w,
-                            lm_w,
-                            token_chunk=128,
-                        )
-                        e0_final_logits[sample.sample_id] = logits_i.detach().cpu()
-                        del h_i, logits_i
-                del hidden
-                if device.type == "cuda":
-                    torch.cuda.empty_cache()
+            from .actual_teacher import load_actual_final_logits
+            e0_final_logits = load_actual_final_logits(Path(recipe["actual_teacher_root"]), train_ids + val_ids)
             # O4 train path only needs E1 inputs + CPU E0 final logits.
             for drop_key in ("e0_output", "e0_moe", "e0_attn", "e0_post_attn", "e0_input"):
                 caches.pop(drop_key, None)
-            del x_rest
             if device.type == "cuda":
                 torch.cuda.empty_cache()
 
@@ -1019,33 +1069,55 @@ def _train_selected_layer_recipe_unlocked(
                 metrics.setdefault("loss", float(base.detach().item()))
                 return base, metrics
 
+            if loss_name == LOSS_O1_M:
+                moe_input = _assemble_tensor_dict(caches["e0_moe_input"], sample_ids, device)
+                local_moe = _student_local_moe(student, moe_input, use_ste=bool(train_mode))
+                tgt = _assemble_tensor_dict(caches["e0_moe"], sample_ids, device)
+                base = _masked_nmse(local_moe.output, tgt, loss_mask, attn_mask)
+                return base, {"loss": float(base.detach().item())}
+
             hidden = _assemble_tensor_dict(x_store, sample_ids, device)
-            call = build_qwen3_moe_layer_call(str(snapshot), hidden)
-            parts = _student_layer_parts(
-                student,
-                hidden,
-                call.position_embeddings,
-                use_ste=bool(train_mode),
-            )
-            out = parts["student_out"]
+            if loss_name in {LOSS_O2_M, *O3_LOSSES}:
+                # The matched controls share the SAME actual E1 MoE input.
+                # Recomputing frozen Attention here would add a second path.
+                actual_moe_input = _assemble_tensor_dict(caches['e1_moe_input'], sample_ids, device)
+                actual_upstream = _assemble_tensor_dict(caches['e1_post_attn'], sample_ids, device)
+                moe = _student_local_moe(student, actual_moe_input, use_ste=bool(train_mode))
+                parts = {'moe_branch': moe.output, 'post_attn': actual_upstream,
+                         'output': actual_upstream + moe.output, 'student_out': moe}
+            elif loss_name in {LOSS_O1_A, LOSS_O2_A}:
+                call = build_qwen3_moe_layer_call(str(snapshot), hidden)
+                attn = _student_local_attention(student, hidden, call.position_embeddings,
+                                                 use_ste=bool(train_mode))
+                parts = {'attn_branch': attn, 'post_attn': hidden + attn}
+            else:
+                call = build_qwen3_moe_layer_call(str(snapshot), hidden)
+                parts = _student_layer_parts(
+                    student, hidden, call.position_embeddings,
+                    use_ste=bool(train_mode), attention_mask=None)
+            out = parts.get("student_out")
 
             if loss_name == LOSS_O0:
                 tgt = _assemble_tensor_dict(caches["e0_output"], sample_ids, device)
                 base = _masked_block_delta_nmse(parts["output"], tgt, hidden, loss_mask, attn_mask)
-            elif loss_name == LOSS_O1_M:
-                tgt = _assemble_tensor_dict(caches["e0_moe"], sample_ids, device)
-                base = _masked_nmse(parts["moe_branch"], tgt, loss_mask, attn_mask)
             elif loss_name == LOSS_O1_A:
                 tgt = _assemble_tensor_dict(caches["e0_attn"], sample_ids, device)
                 base = _masked_nmse(parts["attn_branch"], tgt, loss_mask, attn_mask)
             elif loss_name == LOSS_O2_M:
                 tgt = _assemble_tensor_dict(caches["e0_output"], sample_ids, device)
-                # R_A1 + M_theta vs R_{l+1}^0  <=> full output vs E0 output on E1 input path
-                base = _masked_nmse(parts["output"], tgt, loss_mask, attn_mask)
+                from .mechanism_objectives import cumulative_prediction
+                pred = cumulative_prediction(
+                    _assemble_tensor_dict(caches['e0_post_attn'], sample_ids, device),
+                    parts['post_attn'], parts['moe_branch'], float(recipe.get('upstream_error_weight', 1.0)))
+                base = _masked_nmse(pred, tgt, loss_mask, attn_mask)
                 metrics["cumulative_residual_nmse"] = float(base.detach().item())
             elif loss_name == LOSS_O2_A:
                 tgt = _assemble_tensor_dict(caches["e0_post_attn"], sample_ids, device)
-                base = _masked_nmse(parts["post_attn"], tgt, loss_mask, attn_mask)
+                from .mechanism_objectives import cumulative_prediction
+                pred = cumulative_prediction(
+                    _assemble_tensor_dict(caches['e0_input'], sample_ids, device), hidden,
+                    parts['attn_branch'], float(recipe.get('upstream_error_weight', 1.0)))
+                base = _masked_nmse(pred, tgt, loss_mask, attn_mask)
                 metrics["cumulative_residual_nmse"] = float(base.detach().item())
             elif loss_name == LOSS_JOINT:
                 tgt_m = _assemble_tensor_dict(caches["e0_output"], sample_ids, device)
@@ -1204,6 +1276,9 @@ def _train_selected_layer_recipe_unlocked(
                 "diag": final_snapshot,
                 "steps": steps_done,
                 "seed": seed,
+                "training_path_version": recipe.get('training_path_version', TRAINING_PATH_VERSION),
+                "candidate_id": recipe.get('candidate_id'),
+                "upstream_error_weight": recipe.get('upstream_error_weight', 1.0),
             },
             out_dir / "checkpoint.pt",
         )
@@ -1215,17 +1290,17 @@ def _train_selected_layer_recipe_unlocked(
             for batch in build_validation_batches(val_samples, batch_size):
                 packed = collator(batch)
                 loss, metrics = _compute_base_and_aux(batch=batch, packed=packed, train_mode=False)
-                val_totals["loss"] = val_totals.get("loss", 0.0) + float(loss.item())
-                for k, v in metrics.items():
-                    val_totals[k] = val_totals.get(k, 0.0) + float(v)
+                accumulate_validation_metrics(val_totals, float(loss.item()), metrics)
                 val_counts += 1
         cost["val_seconds"] = time.perf_counter() - t_val0
         val_metrics = {k: (v / max(val_counts, 1)) for k, v in val_totals.items()}
         val_metrics["optimizer_steps"] = steps_done
         val_metrics["layer"] = layer
         val_metrics["loss_name"] = loss_name
-        c_router = _lookup_router_causal_contribution(run_root, layer)
-        val_metrics["router_causal_contribution"] = c_router
+        val_metrics["router_causal_contribution"] = None
+        val_metrics["metrics_schema_version"] = 2
+        val_metrics["evaluation_path"] = "training_runtime_objective_only"
+        val_metrics["training_path_version"] = TRAINING_PATH_VERSION
 
         # Ensure O3 required keys exist (plan F).
         if loss_name in O3_LOSSES:

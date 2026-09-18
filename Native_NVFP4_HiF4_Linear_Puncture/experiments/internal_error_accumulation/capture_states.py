@@ -39,6 +39,8 @@ def capture_variant_states(
     capture_level: str = "core_qkv",
     sample_keys: list[str] | None = None,
     gpu_memory_utilization: float = 0.90,
+    llm_and_runtime: tuple | None = None,
+    capture_all_predictors: bool = False,
 ) -> dict[str, Any]:
     states = read_jsonl(cohort_path)
     if sample_keys is not None:
@@ -46,7 +48,7 @@ def capture_variant_states(
         states = [s for s in states if s["sample_key"] in wanted]
     output_root = Path(output_root)
     output_root.mkdir(parents=True, exist_ok=True)
-    llm, runtime_manifest = build_real_vllm(
+    llm, runtime_manifest = llm_and_runtime if llm_and_runtime is not None else build_real_vllm(
         variant,
         model_path=model_path,
         phasea_root=Path(phasea_root),
@@ -69,7 +71,8 @@ def capture_variant_states(
                 )
             if int(forced[-1]) != int(state["target_token_id"]):
                 raise RuntimeError(f"{key}: forced final token != target_token_id")
-            probe_map = build_probe_map(len(prompt), [{"decode_index": decode_index}])
+            probes = list(range(decode_index + 1)) if capture_all_predictors else [decode_index]
+            probe_map = build_probe_map(len(prompt), [{"decode_index": i} for i in probes])
             begin = llm.apply_model(
                 BeginSampleOp(sample_key=key, prompt_len=len(prompt), probe_abs_to_decode=probe_map)
             )
@@ -117,6 +120,7 @@ def capture_variant_states(
     manifest = {
         "variant": variant,
         "capture_level": capture_level,
+        "capture_all_predictors": capture_all_predictors,
         "runtime": runtime_manifest,
         "n_states": len(results),
         "install": install,

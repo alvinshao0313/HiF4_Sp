@@ -323,7 +323,7 @@ def run_s4(run_id: str, root: Path, state: dict, args: argparse.Namespace) -> No
     state["completed_stages"] = list(dict.fromkeys(list(state.get("completed_stages") or []) + ["S4_PROTECTION_OBJECTIVE"]))
     state["status"] = STATUS_WAITING_REVIEW
     state["waiting_review_gate"] = "S4_OBJECTIVE_EXPANSION_GATE"
-    state["next_allowed_stage"] = "S5_TOPK_STRUCTURAL_VALIDATE"
+    state["next_allowed_stage"] = "S4_HOLDOUT_ACTUAL_VALIDATE"
     state["exit_code"] = 0
     state["failure_or_gate_reason"] = (
         "WAITING_REVIEW: decide whether O2/O3 warrant Top-K expansion before S5"
@@ -331,11 +331,121 @@ def run_s4(run_id: str, root: Path, state: dict, args: argparse.Namespace) -> No
     save_run_state(run_id, state)
 
 
+def run_s4_holdout(run_id: str, root: Path, state: dict, args: argparse.Namespace) -> None:
+    from Native_NVFP4_HiF4_Linear_Puncture.experiments.internal_error_accumulation.objective_holdout import run_objective_holdout
+    if 'S4_PROTECTION_OBJECTIVE' not in state['completed_stages']:
+        raise RuntimeError('actual holdout requires completed S4 training')
+    state.update(current_stage='S4_HOLDOUT_ACTUAL_VALIDATE', exit_code=None,
+                 waiting_review_gate=None, failure_or_gate_reason=None,
+                 next_allowed_stage='S4_HOLDOUT_ACTUAL_VALIDATE')
+    save_run_state(run_id, state)
+    run_objective_holdout(run_root=root, model_path=args.model_path, phasea_root=Path(args.phasea_root))
+    _complete_stage(run_id, state, 'S4_HOLDOUT_ACTUAL_VALIDATE')
+    state.update(status=STATUS_WAITING_REVIEW, waiting_review_gate='S4_OBJECTIVE_EXPANSION_GATE',
+                 next_allowed_stage='S5_TOPK_STRUCTURAL_VALIDATE', exit_code=0,
+                 failure_or_gate_reason='WAITING_REVIEW: independent actual-path objective comparison complete')
+    save_run_state(run_id, state)
+
+
+def run_s4_path_audit(run_id: str, root: Path, state: dict, args: argparse.Namespace) -> None:
+    from Native_NVFP4_HiF4_Linear_Puncture.experiments.internal_error_accumulation.path_audit import run_path_audit
+    if 'S4_HOLDOUT_ACTUAL_VALIDATE' not in state['completed_stages']:
+        raise RuntimeError('path audit requires completed actual holdout captures')
+    state.update(current_stage='S4_PATH_MECHANISM_AUDIT', exit_code=None,
+                 waiting_review_gate=None, failure_or_gate_reason=None,
+                 next_allowed_stage='S4_PATH_MECHANISM_AUDIT')
+    save_run_state(run_id, state)
+    run_path_audit(run_root=root, model_path=args.model_path)
+    _complete_stage(run_id, state, 'S4_PATH_MECHANISM_AUDIT')
+    state.update(status=STATUS_WAITING_REVIEW, waiting_review_gate='S4_PATH_AUDIT_REVIEW',
+                 next_allowed_stage=None, exit_code=0,
+                 failure_or_gate_reason='WAITING_REVIEW: path diagnostics and exploratory mechanism review complete; legacy checkpoint semantics require review')
+    save_run_state(run_id, state)
+
+
+def run_corrected_alignment(run_id: str, root: Path, state: dict, args: argparse.Namespace) -> None:
+    from Native_NVFP4_HiF4_Linear_Puncture.experiments.internal_error_accumulation.phase_alignment import run_alignment
+    if 'S4_PATH_MECHANISM_AUDIT' not in state['completed_stages']:
+        raise RuntimeError('corrected alignment requires completed path audit')
+    state.update(current_stage='S4_CORRECTED_PATH_ALIGNMENT', exit_code=None,
+                 waiting_review_gate=None, failure_or_gate_reason=None,
+                 next_allowed_stage='S4_CORRECTED_PATH_ALIGNMENT')
+    save_run_state(run_id, state)
+    gate = run_alignment(run_root=root, model_path=args.model_path, phasea_root=Path(args.phasea_root))
+    _complete_stage(run_id, state, 'S4_CORRECTED_PATH_ALIGNMENT')
+    state.update(status=STATUS_WAITING_REVIEW, waiting_review_gate='S4_CORRECTED_PATH_ALIGNMENT_GATE',
+                 next_allowed_stage=None, exit_code=0,
+                 failure_or_gate_reason=f'WAITING_REVIEW: corrected path alignment {gate["status"]}; no training or S5 started')
+    save_run_state(run_id, state)
+
+
+def run_arithmetic_alignment_stage(run_id: str, root: Path, state: dict, args: argparse.Namespace) -> None:
+    from Native_NVFP4_HiF4_Linear_Puncture.experiments.internal_error_accumulation.arithmetic_alignment import run_arithmetic_alignment
+    if 'S4_CORRECTED_PATH_ALIGNMENT' not in state['completed_stages']:
+        raise RuntimeError('arithmetic alignment requires completed production captures')
+    stage = 'S4_ARITHMETIC_ALIGNMENT'
+    state.update(current_stage=stage, exit_code=None, waiting_review_gate=None,
+                 failure_or_gate_reason=None, next_allowed_stage=stage)
+    save_run_state(run_id, state)
+    run_arithmetic_alignment(run_root=root, model_path=args.model_path)
+    _complete_stage(run_id, state, stage)
+    state.update(status=STATUS_WAITING_REVIEW, waiting_review_gate=stage + '_GATE',
+                 next_allowed_stage=None, exit_code=0,
+                 failure_or_gate_reason='WAITING_REVIEW: arithmetic/history diagnostics complete; training gate remains BLOCKED')
+    save_run_state(run_id, state)
+
+
+def run_kernel_boundary_alignment_stage(run_id: str, root: Path, state: dict, args: argparse.Namespace) -> None:
+    from Native_NVFP4_HiF4_Linear_Puncture.experiments.internal_error_accumulation.kernel_boundary_alignment import run_kernel_alignment
+    if 'S4_ARITHMETIC_ALIGNMENT' not in state['completed_stages']:
+        raise RuntimeError('kernel boundary checks require arithmetic diagnostics')
+    stage = 'S4_KERNEL_BOUNDARY_ALIGNMENT'
+    state.update(current_stage=stage, exit_code=None, waiting_review_gate=None,
+                 failure_or_gate_reason=None, next_allowed_stage=stage)
+    save_run_state(run_id, state)
+    run_kernel_alignment(run_root=root, model_path=args.model_path)
+    _complete_stage(run_id, state, stage)
+    state.update(status=STATUS_WAITING_REVIEW, waiting_review_gate=stage + '_GATE',
+                 next_allowed_stage=None, exit_code=0,
+                 failure_or_gate_reason='WAITING_REVIEW: production kernel boundary diagnostics complete; training gate remains BLOCKED')
+    save_run_state(run_id, state)
+
+
+def run_mechanism_prepare_stage(run_id: str, root: Path, state: dict, args: argparse.Namespace) -> None:
+    from Native_NVFP4_HiF4_Linear_Puncture.experiments.internal_error_accumulation.mechanism_prepare import run_prepare
+    stage = 'S4_MECHANISM_PREPARE'
+    state.update(current_stage=stage, exit_code=None, waiting_review_gate=None,
+                 failure_or_gate_reason=None, next_allowed_stage=stage)
+    save_run_state(run_id, state)
+    run_prepare(run_root=root, model_path=args.model_path, phasea_root=Path(args.phasea_root))
+    _complete_stage(run_id, state, stage)
+    state.update(status=STATUS_WAITING_REVIEW, waiting_review_gate=stage + '_REVIEW',
+                 next_allowed_stage=None, exit_code=0,
+                 failure_or_gate_reason='WAITING_REVIEW: actual teacher captured; objective correctness checks remain; no S5')
+    save_run_state(run_id, state)
+
+
+def run_mechanism_validate_stage(run_id: str, root: Path, state: dict, args: argparse.Namespace) -> None:
+    from Native_NVFP4_HiF4_Linear_Puncture.experiments.internal_error_accumulation.mechanism_validation import run_validation
+    stage='S4_MECHANISM_VALIDATE'
+    state.update(current_stage=stage,exit_code=None,waiting_review_gate=None,
+                 failure_or_gate_reason=None,next_allowed_stage=stage)
+    save_run_state(run_id,state)
+    run_validation(run_root=root,model_path=args.model_path,phasea_root=Path(args.phasea_root))
+    _complete_stage(run_id,state,stage)
+    state.update(status=STATUS_WAITING_REVIEW,waiting_review_gate=stage+'_RESULTS',
+        next_allowed_stage=None,exit_code=0,
+        failure_or_gate_reason='WAITING_REVIEW: inspect objective/folding evidence and proceed within authorized S4; no S5')
+    save_run_state(run_id,state)
+
+
 def run_s5(run_id: str, root: Path, state: dict, args: argparse.Namespace) -> None:
     from Native_NVFP4_HiF4_Linear_Puncture.experiments.internal_error_accumulation.topk_validate import (
         run_topk_and_variant_validate,
     )
 
+    if 'S4_HOLDOUT_ACTUAL_VALIDATE' not in state['completed_stages']:
+        raise RuntimeError('S5 requires completed independent actual-path objective validation')
     state["current_stage"] = "S5_TOPK_STRUCTURAL_VALIDATE"
     save_run_state(run_id, state)
     run_topk_and_variant_validate(run_root=root, model_path=args.model_path, phasea_root=Path(args.phasea_root))
@@ -371,6 +481,13 @@ STAGE_RUNNERS = {
     "S3_SUBSTRUCTURE_CAUSAL": run_s3,
     "S3_FULL48_CAUSAL": run_s3_full48,
     "S4_PROTECTION_OBJECTIVE": run_s4,
+    "S4_HOLDOUT_ACTUAL_VALIDATE": run_s4_holdout,
+    "S4_PATH_MECHANISM_AUDIT": run_s4_path_audit,
+    "S4_CORRECTED_PATH_ALIGNMENT": run_corrected_alignment,
+    "S4_ARITHMETIC_ALIGNMENT": run_arithmetic_alignment_stage,
+    "S4_KERNEL_BOUNDARY_ALIGNMENT": run_kernel_boundary_alignment_stage,
+    "S4_MECHANISM_PREPARE": run_mechanism_prepare_stage,
+    "S4_MECHANISM_VALIDATE": run_mechanism_validate_stage,
     "S5_TOPK_STRUCTURAL_VALIDATE": run_s5,
     "S6_E2E_VALIDATE": run_s6,
     "S7_REPORT": run_s7,
@@ -396,6 +513,10 @@ def main() -> int:
         state = default_run_state(run_id, through_stage=args.through_stage, pid=os.getpid())
         save_run_state(run_id, state)
 
+    pending_review = state.get('status') == STATUS_WAITING_REVIEW
+    if pending_review and not args.from_stage:
+        print('WAITING_REVIEW: explicit --from-stage required; no stage started')
+        return 0
     state["pid"] = os.getpid()
     state["through_stage"] = args.through_stage
     state["status"] = STATUS_RUNNING
