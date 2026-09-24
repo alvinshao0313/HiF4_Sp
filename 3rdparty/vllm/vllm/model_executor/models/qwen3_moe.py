@@ -409,6 +409,12 @@ class Qwen3MoeDecoderLayer(nn.Module):
         self.post_attention_layernorm = RMSNorm(
             config.hidden_size, eps=config.rms_norm_eps
         )
+        from vllm.model_executor.layers.quantization.residual_lora import load_residual_loras
+        additional_config = getattr(vllm_config, "additional_config", {}) or {}
+        self.residual_attention_lora, self.residual_moe_lora = load_residual_loras(
+            additional_config.get("hif4_runtime_spec_path"),
+            layer_idx, config.hidden_size,
+        )
 
     def forward(
         self,
@@ -422,6 +428,8 @@ class Qwen3MoeDecoderLayer(nn.Module):
             hidden_states = self.input_layernorm(hidden_states)
         else:
             hidden_states, residual = self.input_layernorm(hidden_states, residual)
+        if self.residual_attention_lora is not None:
+            residual = residual + self.residual_attention_lora(residual)
         hidden_states = self.self_attn(
             positions=positions,
             hidden_states=hidden_states,
@@ -429,6 +437,8 @@ class Qwen3MoeDecoderLayer(nn.Module):
 
         # Fully Connected
         hidden_states, residual = self.post_attention_layernorm(hidden_states, residual)
+        if self.residual_moe_lora is not None:
+            residual = residual + self.residual_moe_lora(residual)
         hidden_states = self.mlp(hidden_states)
         return hidden_states, residual
 

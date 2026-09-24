@@ -4,7 +4,7 @@
 - 模型：`Qwen/Qwen3.5-4B`
 - 设备：NVIDIA A800 80GB（CUDA），conda 环境 `hif4`
 - 代码：`HiFloat4/hif4_scale_threshold_optimization/`（未改动公共 HiFloat4 接口）
-- 计划文档：[`plans/2026-07-30-hif4-scale-threshold-optimization-experiment-plan.md`](../plans/2026-07-30-hif4-scale-threshold-optimization-experiment-plan.md)
+- 原计划路径：`../plans/2026-07-30-hif4-scale-threshold-optimization-experiment-plan.md`（2026-09-24 整理时已不在当前工作区；保留来源名称，不重建或冒充原计划）
 
 ## 结果目录索引
 

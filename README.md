@@ -1,11 +1,14 @@
 # HiF4_Sp
 
-本仓库用于两件事：
+本仓库研究 HiF4 / NVFP4 低比特量化、格式转换与评测：
 
 - 用本仓库自带的 vLLM + lighteval 跑评测。
 - 用 HiFloat4 对 Qwen3.5 做 RTN / GPTQ fake-quant，并保存 Hugging Face 格式模型。
+- 用 [Native NVFP4 → HiF4 工程](Native_NVFP4_HiF4_Linear_Puncture/README.md) 研究 Qwen3-30B-A3B 的对角变换、不等价变换与优化目标。
 
 当前只维护一个 conda 环境：`hif4`。不再需要单独的 `qhif4` / `qwen35` 环境，也没有单独的旧安装脚本入口。
+
+文档统一从 [docs/README.md](docs/README.md) 查阅；研究前检索 [经验库](docs/experience/README.md)，完整清单见 [文档索引](docs/INDEX.md)。协作和评测约束以 [AGENTS.md](AGENTS.md) 为准。
 
 ## 关键原则
 
@@ -32,7 +35,7 @@
 
 ## 安装
 
-完整步骤、验证和排错见 [docs/install.md](docs/install.md)。最短路径：
+完整步骤、验证和排错见 [安装指南](docs/guides/install.md)。最短路径：
 
 ```bash
 git clone <this-repo-url>

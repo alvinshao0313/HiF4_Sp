@@ -1,6 +1,8 @@
 # Native NVFP4 → HiF4 实验工程
 
-本目录研究 **Native NVFP4 → HiF4 格式转换** 的数值误差、变换优化、端到端精度和长生成轨迹稳定性。
+文档总入口见 [docs/README.md](../docs/README.md)，研究经验见 [经验库](../docs/experience/README.md)，原始运行证据见 [记录导航](../docs/experience/records/README.md)。本页按模型和研究主题组织；旧计划、交接标题中的状态只描述记录时点。
+
+本目录研究 **Native NVFP4 → HiF4 格式转换** 的损失补偿，当前只保留三条主线：可学习对角变换、不等价变换、以及优化目标研究。
 
 项目最初建立在 `ISTA-DASLab/Qwen3-8B-FPQuant-QAT-NVFP4` 上，随后主线切换到 `nvidia/Qwen3-30B-A3B-NVFP4`。因此当前目录同时保留两代实验，但二者的模型结构、checkpoint 语义和实验用途不同，不能混用结果。
 
@@ -12,12 +14,10 @@
 
 特点：dense Qwen3-8B，checkpoint 内含在线 block rotation。主要用于早期 Linear 穿刺、激活/权重格式转换误差分析，以及 DIAG、H4、R64 等变换机制验证。
 
-相关入口：
+历史入口已经集中归档到 `archive/legacy/native_qwen3_8b/`。仍保留的共享入口只有：
 
 - 原始 Linear 穿刺实现：`src/`、`scripts/`、`configs/qwen3_8b_native_nvfp4_linear_puncture.yaml`
-- 激活可视化：`experiments/activation_3d_viz/`
-- DIAG / H4 / R64：`experiments/diag_gradient/`
-- H4 block rotation：`experiments/h4_block_rotation/`
+- R64 共享变换：`experiments/diag_gradient/r64_transform.py`
 - 旧逐层重建路径：`experiments/e2e_diag_reconstruction/` 中保留的 dense 8B 逻辑
 - 历史计划：`plans/qwen3_8b_qat/`
 - 历史结果归档入口：`results/qwen3_8b_qat/`
@@ -32,7 +32,10 @@
 相关入口：
 
 - MoE reconstruction / materialize / evaluation：`experiments/e2e_diag_reconstruction/`
-- 长轨迹稳定性与 semantic replay：`experiments/long_trajectory_stability/`
+- 不等价变换：`experiments/non_equivalent_reconstruction/`
+- 优化目标：`experiments/internal_error_accumulation/`、`experiments/kl_direction_reuse/`
+- 渐进式误差抵消：`experiments/progressive_error_cancellation/`
+- 真实 vLLM hook 共享实现：`experiments/long_trajectory_stability/real_vllm_hooks/`
 - 当前计划：`plans/qwen3_30b_a3b/`
 - 当前主要结果：`results/e2e_diag_reconstruction/`、`results/long_trajectory_stability/`
 
@@ -45,11 +48,13 @@
 | `configs/` | 原始 8B Linear puncture 配置 | Qwen3-8B QAT |
 | `src/` | 原始 packed NVFP4 解析、capture、Linear cases、格式模拟 | Qwen3-8B QAT |
 | `scripts/` | 原始 8B Linear puncture 执行脚本 | Qwen3-8B QAT |
-| `experiments/activation_3d_viz/` | 保存激活的可视化诊断 | Qwen3-8B QAT |
-| `experiments/diag_gradient/` | DIAG / H4 / R64 局部优化和组合实验 | Qwen3-8B QAT |
-| `experiments/h4_block_rotation/` | H4 四维块旋转机制实验 | Qwen3-8B QAT |
-| `experiments/e2e_diag_reconstruction/` | 逐层 reconstruction 框架；先支持 8B，后增量适配 30B MoE | 共享实现，当前主线为 30B |
-| `experiments/long_trajectory_stability/` | vLLM free-run、teacher-forcing replay、算子 parity、TP2 / residual / RoPE 对齐 | Qwen3-30B-A3B |
+| `experiments/diag_gradient/r64_transform.py` | 30B 主线复用的 R64 变换实现 | 共享依赖 |
+| `experiments/e2e_diag_reconstruction/` | 可学习对角变换、逐层 reconstruction 和评估 | Qwen3-30B-A3B |
+| `experiments/non_equivalent_reconstruction/` | 不等价变换和最终导出对比 | Qwen3-30B-A3B |
+| `experiments/internal_error_accumulation/` | 格式转换误差与保护目标研究 | Qwen3-30B-A3B |
+| `experiments/kl_direction_reuse/` | KL 方向复用和优化目标实验 | Qwen3-30B-A3B |
+| `experiments/progressive_error_cancellation/` | 渐进式误差抵消实验；运行中的目录受保护 | Qwen3-30B-A3B |
+| `experiments/long_trajectory_stability/real_vllm_hooks/` | 优化目标依赖的真实 vLLM hook | Qwen3-30B-A3B |
 | `plans/qwen3_8b_qat/` | 旧 8B 实验计划 | Qwen3-8B QAT |
 | `plans/qwen3_30b_a3b/` | 当前 30B MoE 实验计划 | Qwen3-30B-A3B |
 | `results/qwen3_8b_qat/` | 旧 8B 结果的独立归档入口 | Qwen3-8B QAT |
@@ -72,8 +77,8 @@
 - `20260813T062121Z_theory_grid_scale_validation`
 - `20260813T090200Z_diag_group_stats`
 - 2026-08-15～2026-08-17 的 DIAG / H4 / R64 gradient runs
-- `activation_3d_viz/`
-- `h4_block_rotation/`
+- `archive/legacy/native_qwen3_8b/activation_3d_viz/`
+- `archive/legacy/native_qwen3_8b/h4_block_rotation/`
 - `results/e2e_diag_reconstruction/` 中 2026-08-18 的 8B reconstruction / smoke / ablation 结果
 - 旧 `shared_vllm/` 8B materialization
 
@@ -86,12 +91,12 @@
 
 ## 4. 整理原则
 
-本项目保留实验历史，不通过“整理目录”改写实验事实：
+本项目将当前研究代码与历史记录分开：
 
-- 不删除旧代码、旧计划、旧结果或旧日志；
-- 不修改历史 `config.json`、manifest、日志、`run_map.json` 中记录的原始绝对路径；
-- 不为了目录统一而重写正在使用的 30B Python import 路径；
-- 当前运行代码只有在确实读取被移动资源时才修改路径。
+- 当前三条主线、共享依赖和正在运行的 progressive 目录保持原路径；
+- 退出主线的代码集中放入仓库根目录 `archive/legacy/`，保留 README、报告和归档说明；
+- 历史结果只在确认没有活动进程、默认入口或正式证据引用后清理；
+- 不修改历史 manifest、日志和结果中的原始路径，也不通过 reset 覆盖已有工作区改动。
 
 ## 5. 环境
 
