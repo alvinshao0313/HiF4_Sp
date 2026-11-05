@@ -42,5 +42,5 @@ def test_default_initialization_exists_and_config_rejects_invalid():
 def test_incomplete_artifact_cannot_be_exported(tmp_path):
     write_json({"kind": KIND, "schema_version": SCHEMA_VERSION, "completed_layers": []}, tmp_path / "manifest.json")
     assert load_manifest(tmp_path)["completed_layers"] == []
-    with pytest.raises(ValueError, match="48"):
+    with pytest.raises(ValueError, match="source snapshot"):
         load_manifest(tmp_path, require_complete=True)

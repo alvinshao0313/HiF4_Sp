@@ -341,7 +341,8 @@ def _propagate(
 
 
 def train_qwen3_moe_lazy(cfg: E2ETrainConfig, device: torch.device) -> None:
-    snapshot = Path(resolve_local_snapshot(cfg.model_path))
+    prefixes = ("model.embed_tokens.", *(f"model.layers.{i}." for i in range(cfg.start_layer, cfg.end_layer + 1)))
+    snapshot = Path(resolve_local_snapshot(cfg.model_path, tensor_prefixes=prefixes))
     out_dir = ensure_dir(cfg.output_dir)
     tokenizer = AutoTokenizer.from_pretrained(str(snapshot), trust_remote_code=True)
     if tokenizer.pad_token_id is None:

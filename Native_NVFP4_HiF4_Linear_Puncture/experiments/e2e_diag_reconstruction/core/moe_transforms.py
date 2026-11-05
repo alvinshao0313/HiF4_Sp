@@ -78,8 +78,18 @@ def fusable_weight_transform_no_h(
     return apply_r64_no_cross_head(result, head_dim=head_dim) if use_r64 else result
 
 
-def expand_vo_scale_qwen3_moe(d_vo: torch.Tensor) -> torch.Tensor:
-    return expand_vo_scale(d_vo, num_attention_heads=32, num_key_value_heads=4, head_dim=128)
+def expand_vo_scale_qwen3_moe(
+    d_vo: torch.Tensor,
+    *,
+    num_attention_heads: int = 32,
+    num_key_value_heads: int = 4,
+    head_dim: int = 128,
+) -> torch.Tensor:
+    # V scales live in KV-head space; O consumes every repeated query head.
+    return expand_vo_scale(
+        d_vo, num_attention_heads=num_attention_heads,
+        num_key_value_heads=num_key_value_heads, head_dim=head_dim,
+    )
 
 
 def transform_router_weight(router_weight: torch.Tensor, d_gu: torch.Tensor) -> torch.Tensor:

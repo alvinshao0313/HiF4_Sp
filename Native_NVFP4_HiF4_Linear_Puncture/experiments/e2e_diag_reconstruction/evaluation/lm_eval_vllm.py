@@ -42,12 +42,13 @@ def build_lm_eval_vllm_kwargs(
     max_model_len: int = 4096,
     max_num_batched_tokens: int | None = None,
     seed: int = 42,
+    tensor_parallel_size: int = 2,
 ) -> dict[str, Any]:
     kwargs: dict[str, Any] = {
         "pretrained": model_path,
         "trust_remote_code": True,
         "dtype": "auto",
-        "tensor_parallel_size": 2,
+        "tensor_parallel_size": int(tensor_parallel_size),
         "kv_cache_dtype": "bfloat16",
         "enforce_eager": True,
         "max_model_len": int(max_model_len),

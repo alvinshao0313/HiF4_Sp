@@ -5,9 +5,9 @@
 按用途列出当前工作区的自有文档（含忽略的结果文件）；不搬动实验目录，不包含第三方文档、缓存和模型数据。
 方案、历史状态及运行证据的出现不代表当前已完成或获准执行。
 
-共 190 份正文或导航文件；本索引不计入自身。
+共 304 份正文或导航文件；本索引不计入自身。
 
-## 指南与协作规则（14）
+## 指南与协作规则（24）
 
 | 文档 | 路径 |
 | --- | --- |
@@ -16,36 +16,51 @@
 | [HiFloat4](../HiFloat4/README.md) | `HiFloat4/README.md` |
 | [HiF4 层级 Scale 与阶段阈值优化实验](../HiFloat4/hif4_scale_threshold_optimization/README.md) | `HiFloat4/hif4_scale_threshold_optimization/README.md` |
 | [Native NVFP4 → HiF4 实验工程](../Native_NVFP4_HiF4_Linear_Puncture/README.md) | `Native_NVFP4_HiF4_Linear_Puncture/README.md` |
+| [matrix_norm HiF4 上的 Ban](../Native_NVFP4_HiF4_Linear_Puncture/experiments/ban/README.md) | `Native_NVFP4_HiF4_Linear_Puncture/experiments/ban/README.md` |
+| [自生成轨迹重新校准 Ban](../Native_NVFP4_HiF4_Linear_Puncture/experiments/ban_trace_calibration/README.md) | `Native_NVFP4_HiF4_Linear_Puncture/experiments/ban_trace_calibration/README.md` |
 | [Native NVFP4 → HiF4 逐层重建框架](../Native_NVFP4_HiF4_Linear_Puncture/experiments/e2e_diag_reconstruction/README.md) | `Native_NVFP4_HiF4_Linear_Puncture/experiments/e2e_diag_reconstruction/README.md` |
 | [单层 KL 方向复用实验](../Native_NVFP4_HiF4_Linear_Puncture/experiments/kl_direction_reuse/README.md) | `Native_NVFP4_HiF4_Linear_Puncture/experiments/kl_direction_reuse/README.md` |
 | [Qwen3-30B-A3B NVFP4→HiF4 长轨迹稳定性诊断](../Native_NVFP4_HiF4_Linear_Puncture/experiments/long_trajectory_stability/README.md) | `Native_NVFP4_HiF4_Linear_Puncture/experiments/long_trajectory_stability/README.md` |
 | [非等价变换重建：独立实验](../Native_NVFP4_HiF4_Linear_Puncture/experiments/non_equivalent_reconstruction/README.md) | `Native_NVFP4_HiF4_Linear_Puncture/experiments/non_equivalent_reconstruction/README.md` |
 | [Progressive error cancellation](../Native_NVFP4_HiF4_Linear_Puncture/experiments/progressive_error_cancellation/README.md) | `Native_NVFP4_HiF4_Linear_Puncture/experiments/progressive_error_cancellation/README.md` |
+| [Qwen3-235B matrix_norm 转换与四任务对照](../Native_NVFP4_HiF4_Linear_Puncture/experiments/qwen3_235b_matrix_norm/README.md) | `Native_NVFP4_HiF4_Linear_Puncture/experiments/qwen3_235b_matrix_norm/README.md` |
+| [校准轨迹与 Router 对齐实验](../Native_NVFP4_HiF4_Linear_Puncture/experiments/reasoning_trace_calibration/README.md) | `Native_NVFP4_HiF4_Linear_Puncture/experiments/reasoning_trace_calibration/README.md` |
+| [原 B 的完整 KL 与硬 CE 对照](../Native_NVFP4_HiF4_Linear_Puncture/experiments/reasoning_trace_full_kl_ce/README.md) | `Native_NVFP4_HiF4_Linear_Puncture/experiments/reasoning_trace_full_kl_ce/README.md` |
+| [完整 KL / 硬 CE 的 TP2 并行评测接续](../Native_NVFP4_HiF4_Linear_Puncture/experiments/reasoning_trace_full_kl_ce_parallel/README.md) | `Native_NVFP4_HiF4_Linear_Puncture/experiments/reasoning_trace_full_kl_ce_parallel/README.md` |
+| [B 末层与输出端词表蒸馏](../Native_NVFP4_HiF4_Linear_Puncture/experiments/reasoning_trace_last_head/README.md) | `Native_NVFP4_HiF4_Linear_Puncture/experiments/reasoning_trace_last_head/README.md` |
+| [B 的 BF16 Router 对齐](../Native_NVFP4_HiF4_Linear_Puncture/experiments/reasoning_trace_router_bf16/README.md) | `Native_NVFP4_HiF4_Linear_Puncture/experiments/reasoning_trace_router_bf16/README.md` |
 | [HiF4_Sp](../README.md) | `README.md` |
 | [文档管理规范](MANAGEMENT.md) | `docs/MANAGEMENT.md` |
 | [HiF4 GPU 量化流程说明](guides/hif4_gpu_quant_flow.md) | `docs/guides/hif4_gpu_quant_flow.md` |
 | [环境安装文档](guides/install.md) | `docs/guides/install.md` |
+| [MiniMax-M3.1-Flash 文本推理回移](guides/minimax_m3.md) | `docs/guides/minimax_m3.md` |
+| [MiniMax NVFP4 → MXFP4 权重与激活对比](guides/minimax_mxfp4.md) | `docs/guides/minimax_mxfp4.md` |
 
-## 可复用经验（4）
+## 可复用经验（5）
 
 | 文档 | 路径 |
 | --- | --- |
 | [评测协议与真实执行路径](experience/lessons/evaluation_evidence.md) | `docs/experience/lessons/evaluation_evidence.md` |
 | [fake quant 与实际低比特执行](experience/lessons/fake_quant_boundaries.md) | `docs/experience/lessons/fake_quant_boundaries.md` |
+| [大模型迁移的训练执行验证](experience/lessons/model_transfer_execution.md) | `docs/experience/lessons/model_transfer_execution.md` |
 | [vLLM 构建与 torch ABI](experience/lessons/vllm_build.md) | `docs/experience/lessons/vllm_build.md` |
 | [目录归档与活动实验保护](experience/lessons/workspace_protection.md) | `docs/experience/lessons/workspace_protection.md` |
 
-## 实验与维护记录（5）
+## 实验与维护记录（9）
 
 | 文档 | 路径 |
 | --- | --- |
 | [HiF4 S0/e8/e4 阈值优化实验记录](../HiFloat4/hif4_scale_threshold_optimization/experiments/EXPERIMENT_REPORT.md) | `HiFloat4/hif4_scale_threshold_optimization/experiments/EXPERIMENT_REPORT.md` |
+| [2026-10-23：matrix_norm HiF4 的 Ban 接入与短测](experience/records/ban_matrix_norm_20261023.md) | `docs/experience/records/ban_matrix_norm_20261023.md` |
+| [2026-10-28：自生成轨迹重新校准 Ban](experience/records/ban_trace_calibration_20261028.md) | `docs/experience/records/ban_trace_calibration_20261028.md` |
 | [HiF4 vLLM Fake Activation Quantization Log](experience/records/implementation/hif4_vllm_fake_act_quant.md) | `docs/experience/records/implementation/hif4_vllm_fake_act_quant.md` |
 | [NVFP4 vLLM Fake Activation Quantization Log](experience/records/implementation/nvfp4_vllm_fake_act_quant.md) | `docs/experience/records/implementation/nvfp4_vllm_fake_act_quant.md` |
 | [Experiment cleanup record — 2026-09-20](experience/records/maintenance/2026-09-20-experiment-cleanup.md) | `docs/experience/records/maintenance/2026-09-20-experiment-cleanup.md` |
 | [历史无用数据清理记录（2026-09-24）](experience/records/maintenance/2026-09-24-history-cleanup.md) | `docs/experience/records/maintenance/2026-09-24-history-cleanup.md` |
+| [2026-11-04：matrix_norm短程转换五任务结果](experience/records/matrix_norm_efficiency_20261104.md) | `docs/experience/records/matrix_norm_efficiency_20261104.md` |
+| [2026-10-26：235B matrix_norm 实现与资源阻塞](experience/records/qwen3_235b_matrix_norm_20261026.md) | `docs/experience/records/qwen3_235b_matrix_norm_20261026.md` |
 
-## 方案与历史（37）
+## 方案与历史（45）
 
 | 文档 | 路径 |
 | --- | --- |
@@ -54,8 +69,16 @@
 | [vLLM v0.27.0 NVFP4 Emulation 局部回移设计说明](../NVFP4/plans/2026-08-21-vllm-v027-nvfp4-emulation-backport-design-cn.md) | `NVFP4/plans/2026-08-21-vllm-v027-nvfp4-emulation-backport-design-cn.md` |
 | [vLLM v0.27.0 NVFP4 Dense + MoE Emulation 局部回移实施计划](../NVFP4/plans/2026-08-21-vllm-v027-nvfp4-emulation-backport-plan-cn.md) | `NVFP4/plans/2026-08-21-vllm-v027-nvfp4-emulation-backport-plan-cn.md` |
 | [Native NVFP4 → HiF4 Linear Puncture](../Native_NVFP4_HiF4_Linear_Puncture/README_QWEN3_8B_QAT_LEGACY.md) | `Native_NVFP4_HiF4_Linear_Puncture/README_QWEN3_8B_QAT_LEGACY.md` |
+| [NVFP4 → HiF4 下游精度恢复](../Native_NVFP4_HiF4_Linear_Puncture/experiments/downstream_accuracy_recovery/PLAN.md) | `Native_NVFP4_HiF4_Linear_Puncture/experiments/downstream_accuracy_recovery/PLAN.md` |
 | [KL 方向复用实验重启方案](../Native_NVFP4_HiF4_Linear_Puncture/experiments/kl_direction_reuse/PLAN_v2.md) | `Native_NVFP4_HiF4_Linear_Puncture/experiments/kl_direction_reuse/PLAN_v2.md` |
 | [KL 方向指引端到端下游验证计划](../Native_NVFP4_HiF4_Linear_Puncture/experiments/kl_direction_reuse_downstream/PLAN.md) | `Native_NVFP4_HiF4_Linear_Puncture/experiments/kl_direction_reuse_downstream/PLAN.md` |
+| [matrix_norm 高效、高保真转换](../Native_NVFP4_HiF4_Linear_Puncture/experiments/matrix_norm_efficiency/PLAN.md) | `Native_NVFP4_HiF4_Linear_Puncture/experiments/matrix_norm_efficiency/PLAN.md` |
+| [Qwen3-30B-A3B 模块设计消融](../Native_NVFP4_HiF4_Linear_Puncture/experiments/module_design_ablation/PLAN.md) | `Native_NVFP4_HiF4_Linear_Puncture/experiments/module_design_ablation/PLAN.md` |
+| [Qwen3-235B-A22B NVFP4 → HiF4 算法迁移验证](../Native_NVFP4_HiF4_Linear_Puncture/experiments/qwen3_235b_transfer/PLAN.md) | `Native_NVFP4_HiF4_Linear_Puncture/experiments/qwen3_235b_transfer/PLAN.md` |
+| [两类校准数据对比与追加 Router 对齐](../Native_NVFP4_HiF4_Linear_Puncture/experiments/reasoning_trace_calibration/PLAN.md) | `Native_NVFP4_HiF4_Linear_Puncture/experiments/reasoning_trace_calibration/PLAN.md` |
+| [原 B 的完整 KL 与轨迹 next-token 硬 CE 对照](../Native_NVFP4_HiF4_Linear_Puncture/experiments/reasoning_trace_full_kl_ce/PLAN.md) | `Native_NVFP4_HiF4_Linear_Puncture/experiments/reasoning_trace_full_kl_ce/PLAN.md` |
+| [B 最后一层与输出端的词表 Top-mass KL 蒸馏](../Native_NVFP4_HiF4_Linear_Puncture/experiments/reasoning_trace_last_head/PLAN.md) | `Native_NVFP4_HiF4_Linear_Puncture/experiments/reasoning_trace_last_head/PLAN.md` |
+| [B 模型追加 BF16 Router 校准](../Native_NVFP4_HiF4_Linear_Puncture/experiments/reasoning_trace_router_bf16/PLAN.md) | `Native_NVFP4_HiF4_Linear_Puncture/experiments/reasoning_trace_router_bf16/PLAN.md` |
 | [残差分支 LoRA 补偿实验大纲](../Native_NVFP4_HiF4_Linear_Puncture/experiments/residual_lora_compensation/PLAN.md) | `Native_NVFP4_HiF4_Linear_Puncture/experiments/residual_lora_compensation/PLAN.md` |
 | [Qwen3-30B-A3B 原生 NVFP4 → HiF4 MoE E2E DIAG/R64 消融实验计划（不使用 Teacher-CoT）](../Native_NVFP4_HiF4_Linear_Puncture/plans/qwen3_30b_a3b/2026-08-21-qwen3-30b-a3b-native-nvfp4-to-hif4-moe-e2e-ablation-no-teacher-cot-plan-cn.md) | `Native_NVFP4_HiF4_Linear_Puncture/plans/qwen3_30b_a3b/2026-08-21-qwen3-30b-a3b-native-nvfp4-to-hif4-moe-e2e-ablation-no-teacher-cot-plan-cn.md` |
 | [Qwen3-30B-A3B Native NVFP4 → HiF4：Task 14+ 重构后正式实验重规划](../Native_NVFP4_HiF4_Linear_Puncture/plans/qwen3_30b_a3b/2026-08-25-qwen3-30b-a3b-native-nvfp4-to-hif4-moe-task14-plus-refactor-replan-cn.md) | `Native_NVFP4_HiF4_Linear_Puncture/plans/qwen3_30b_a3b/2026-08-25-qwen3-30b-a3b-native-nvfp4-to-hif4-moe-task14-plus-refactor-replan-cn.md` |
@@ -87,7 +110,7 @@
 | [vLLM 0.17.0 Editable 源码编译安装指南](experience/history/environment/vllm_0_17_source_build_guide.md) | `docs/experience/history/environment/vllm_0_17_source_build_guide.md` |
 | [vLLM 安装踩坑与备选方案](experience/history/environment/vllm_install_notes.md) | `docs/experience/history/environment/vllm_install_notes.md` |
 
-## 原位运行证据与生成报告（112）
+## 原位运行证据与生成报告（203）
 
 | 文档 | 路径 |
 | --- | --- |
@@ -97,6 +120,20 @@
 | [Qwen3-30B-A3B-NVFP4 Puncture (Task 10)](../NVFP4/reports/vllm_v027_nvfp4_backport/qwen3_30b_puncture.md) | `NVFP4/reports/vllm_v027_nvfp4_backport/qwen3_30b_puncture.md` |
 | [Qwen3-30B-A3B-NVFP4 Smoke (Task 11)](../NVFP4/reports/vllm_v027_nvfp4_backport/qwen3_30b_smoke.md) | `NVFP4/reports/vllm_v027_nvfp4_backport/qwen3_30b_smoke.md` |
 | [vLLM v0.27.0 NVFP4 Emulation Backport Inventory](../NVFP4/reports/vllm_v027_nvfp4_backport/upstream_inventory.md) | `NVFP4/reports/vllm_v027_nvfp4_backport/upstream_inventory.md` |
+| [gpu_snapshot.txt](../Native_NVFP4_HiF4_Linear_Puncture/results/ban/gsm8k_8to6_preparation_20261023T142740Z/gpu_snapshot.txt) | `Native_NVFP4_HiF4_Linear_Puncture/results/ban/gsm8k_8to6_preparation_20261023T142740Z/gpu_snapshot.txt` |
+| [gpu_snapshot.txt](../Native_NVFP4_HiF4_Linear_Puncture/results/ban/repeats_preparation_20261026T042321Z/gpu_snapshot.txt) | `Native_NVFP4_HiF4_Linear_Puncture/results/ban/repeats_preparation_20261026T042321Z/gpu_snapshot.txt` |
+| [gpu_snapshot.txt](../Native_NVFP4_HiF4_Linear_Puncture/results/ban/repeats_preparation_20261026T084052Z/gpu_snapshot.txt) | `Native_NVFP4_HiF4_Linear_Puncture/results/ban/repeats_preparation_20261026T084052Z/gpu_snapshot.txt` |
+| [平均约6.4个专家的Ban下游结果](../Native_NVFP4_HiF4_Linear_Puncture/results/ban_trace_calibration/budget64_20261102T025500Z/REPORT.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/ban_trace_calibration/budget64_20261102T025500Z/REPORT.md` |
+| [原matrix_norm模型：Ban 6.4预算五任务结果](../Native_NVFP4_HiF4_Linear_Puncture/results/ban_trace_calibration/remaining64_20261104T040720Z/REPORT.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/ban_trace_calibration/remaining64_20261104T040720Z/REPORT.md` |
+| [NVFP4 → HiF4 五项下游精度验收](../Native_NVFP4_HiF4_Linear_Puncture/results/downstream_accuracy_recovery/paired_full_20260930T131000Z/REPORT.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/downstream_accuracy_recovery/paired_full_20260930T131000Z/REPORT.md` |
+| [Model Overview](../Native_NVFP4_HiF4_Linear_Puncture/results/downstream_accuracy_recovery/paired_full_20260930T131000Z/models/formal/native_nvfp4/arc/README.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/downstream_accuracy_recovery/paired_full_20260930T131000Z/models/formal/native_nvfp4/arc/README.md` |
+| [Model Overview](../Native_NVFP4_HiF4_Linear_Puncture/results/downstream_accuracy_recovery/paired_full_20260930T131000Z/models/formal/native_nvfp4/gsm8k/README.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/downstream_accuracy_recovery/paired_full_20260930T131000Z/models/formal/native_nvfp4/gsm8k/README.md` |
+| [Model Overview](../Native_NVFP4_HiF4_Linear_Puncture/results/downstream_accuracy_recovery/paired_full_20260930T131000Z/models/formal/native_nvfp4/lcb/README.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/downstream_accuracy_recovery/paired_full_20260930T131000Z/models/formal/native_nvfp4/lcb/README.md` |
+| [Model Overview](../Native_NVFP4_HiF4_Linear_Puncture/results/downstream_accuracy_recovery/paired_full_20260930T131000Z/models/formal/native_nvfp4/mmlu_pro/README.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/downstream_accuracy_recovery/paired_full_20260930T131000Z/models/formal/native_nvfp4/mmlu_pro/README.md` |
+| [Model Overview](../Native_NVFP4_HiF4_Linear_Puncture/results/downstream_accuracy_recovery/paired_full_20260930T131000Z/models/smoke/native_nvfp4/arc/README.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/downstream_accuracy_recovery/paired_full_20260930T131000Z/models/smoke/native_nvfp4/arc/README.md` |
+| [Model Overview](../Native_NVFP4_HiF4_Linear_Puncture/results/downstream_accuracy_recovery/paired_full_20260930T131000Z/models/smoke/native_nvfp4/gsm8k/README.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/downstream_accuracy_recovery/paired_full_20260930T131000Z/models/smoke/native_nvfp4/gsm8k/README.md` |
+| [Model Overview](../Native_NVFP4_HiF4_Linear_Puncture/results/downstream_accuracy_recovery/paired_full_20260930T131000Z/models/smoke/native_nvfp4/lcb/README.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/downstream_accuracy_recovery/paired_full_20260930T131000Z/models/smoke/native_nvfp4/lcb/README.md` |
+| [Model Overview](../Native_NVFP4_HiF4_Linear_Puncture/results/downstream_accuracy_recovery/paired_full_20260930T131000Z/models/smoke/native_nvfp4/mmlu_pro/README.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/downstream_accuracy_recovery/paired_full_20260930T131000Z/models/smoke/native_nvfp4/mmlu_pro/README.md` |
 | [QWEN3_30B_IMPLEMENTATION_PROGRESS.md](../Native_NVFP4_HiF4_Linear_Puncture/results/e2e_diag_reconstruction/QWEN3_30B_IMPLEMENTATION_PROGRESS.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/e2e_diag_reconstruction/QWEN3_30B_IMPLEMENTATION_PROGRESS.md` |
 | [QWEN3_30B_IMPLEMENTATION_STOP_REASON.md](../Native_NVFP4_HiF4_Linear_Puncture/results/e2e_diag_reconstruction/QWEN3_30B_IMPLEMENTATION_STOP_REASON.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/e2e_diag_reconstruction/QWEN3_30B_IMPLEMENTATION_STOP_REASON.md` |
 | [Qwen3-30B NVFP4 TP Parity Diagnostic](../Native_NVFP4_HiF4_Linear_Puncture/results/e2e_diag_reconstruction/QWEN3_30B_TP_PARITY_DIAGNOSTIC.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/e2e_diag_reconstruction/QWEN3_30B_TP_PARITY_DIAGNOSTIC.md` |
@@ -202,7 +239,84 @@
 | [Task 15：LiveCodeBench 机制迁移结论](../Native_NVFP4_HiF4_Linear_Puncture/results/long_trajectory_stability/trajectory_stability_real_vllm_lcb/analysis/TASK15_LCB_CONCLUSIONS.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/long_trajectory_stability/trajectory_stability_real_vllm_lcb/analysis/TASK15_LCB_CONCLUSIONS.md` |
 | [长轨迹稳定性诊断：Smoke 执行汇报（在 E0 parity 门禁停止）](../Native_NVFP4_HiF4_Linear_Puncture/results/long_trajectory_stability/trajectory_stability_smoke/analysis/CURSOR_EXECUTION_SUMMARY.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/long_trajectory_stability/trajectory_stability_smoke/analysis/CURSOR_EXECUTION_SUMMARY.md` |
 | [E0 TP1 / TP2 / semantic 三方定位](../Native_NVFP4_HiF4_Linear_Puncture/results/long_trajectory_stability/trajectory_stability_smoke_e0_tp1_control/E0_TP1_TP2_SEMANTIC_TRIAGE.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/long_trajectory_stability/trajectory_stability_smoke_e0_tp1_control/E0_TP1_TP2_SEMANTIC_TRIAGE.md` |
+| [random50_e5 五任务正式评测结果](../Native_NVFP4_HiF4_Linear_Puncture/results/matrix_norm_efficiency/run_20261029T023839Z/REPORT.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/matrix_norm_efficiency/run_20261029T023839Z/REPORT.md` |
+| [matrix_norm_20261019.prompt.txt](../Native_NVFP4_HiF4_Linear_Puncture/results/module_design_ablation/figures/matrix_norm_20261019.prompt.txt) | `Native_NVFP4_HiF4_Linear_Puncture/results/module_design_ablation/figures/matrix_norm_20261019.prompt.txt` |
+| [r64_construction_cn_20261020.prompt.txt](../Native_NVFP4_HiF4_Linear_Puncture/results/module_design_ablation/figures/r64_construction_cn_20261020.prompt.txt) | `Native_NVFP4_HiF4_Linear_Puncture/results/module_design_ablation/figures/r64_construction_cn_20261020.prompt.txt` |
+| [r64_design_comparison_cn_20261020.prompt.txt](../Native_NVFP4_HiF4_Linear_Puncture/results/module_design_ablation/figures/r64_design_comparison_cn_20261020.prompt.txt) | `Native_NVFP4_HiF4_Linear_Puncture/results/module_design_ablation/figures/r64_design_comparison_cn_20261020.prompt.txt` |
+| [r64_design_comparison_cn_20261020_wide.prompt.txt](../Native_NVFP4_HiF4_Linear_Puncture/results/module_design_ablation/figures/r64_design_comparison_cn_20261020_wide.prompt.txt) | `Native_NVFP4_HiF4_Linear_Puncture/results/module_design_ablation/figures/r64_design_comparison_cn_20261020_wide.prompt.txt` |
+| [模块设计消融：同轮结果与历史基线比较](../Native_NVFP4_HiF4_Linear_Puncture/results/module_design_ablation/formal_20261008T074812Z/REPORT.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/module_design_ablation/formal_20261008T074812Z/REPORT.md` |
+| [AIME25 最终答案评分复核（2026-10-15）](../Native_NVFP4_HiF4_Linear_Puncture/results/module_design_ablation/formal_20261008T074812Z/aime_scoring_recomputed_20261015.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/module_design_ablation/formal_20261008T074812Z/aime_scoring_recomputed_20261015.md` |
+| [模块消融全量结果](../Native_NVFP4_HiF4_Linear_Puncture/results/module_design_ablation/formal_20261008T074812Z/mmlu_revision_recovery_20261014/original_driver_report.txt) | `Native_NVFP4_HiF4_Linear_Puncture/results/module_design_ablation/formal_20261008T074812Z/mmlu_revision_recovery_20261014/original_driver_report.txt` |
+| [235B E4 四卡样本并行加速短测](../Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_235b_transfer/acceleration_20261003T121157Z/REPORT.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_235b_transfer/acceleration_20261003T121157Z/REPORT.md` |
+| [operators.txt](../Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_235b_transfer/bottleneck_20261003T144100Z/operators.txt) | `Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_235b_transfer/bottleneck_20261003T144100Z/operators.txt` |
+| [235B 四卡候选：两阶段训练与模型导出](../Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_235b_transfer/parallel_20261003T144300Z/REPORT.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_235b_transfer/parallel_20261003T144300Z/REPORT.md` |
+| [Model Overview](../Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_235b_transfer/parallel_20261003T144300Z/downstream/models/formal/native_nvfp4/arc/README.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_235b_transfer/parallel_20261003T144300Z/downstream/models/formal/native_nvfp4/arc/README.md` |
+| [Model Overview](../Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_235b_transfer/parallel_20261003T144300Z/downstream/models/formal/native_nvfp4/gsm8k/README.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_235b_transfer/parallel_20261003T144300Z/downstream/models/formal/native_nvfp4/gsm8k/README.md` |
+| [Model Overview](../Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_235b_transfer/parallel_20261003T144300Z/downstream/models/formal/native_nvfp4/lcb/README.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_235b_transfer/parallel_20261003T144300Z/downstream/models/formal/native_nvfp4/lcb/README.md` |
+| [Model Overview](../Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_235b_transfer/parallel_20261003T144300Z/downstream/models/formal/native_nvfp4/mmlu_pro/README.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_235b_transfer/parallel_20261003T144300Z/downstream/models/formal/native_nvfp4/mmlu_pro/README.md` |
+| [Model Overview](../Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_235b_transfer/parallel_20261003T144300Z/downstream/models/smoke/native_nvfp4/arc/README.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_235b_transfer/parallel_20261003T144300Z/downstream/models/smoke/native_nvfp4/arc/README.md` |
+| [Model Overview](../Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_235b_transfer/parallel_20261003T144300Z/downstream/models/smoke/native_nvfp4/gsm8k/README.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_235b_transfer/parallel_20261003T144300Z/downstream/models/smoke/native_nvfp4/gsm8k/README.md` |
+| [Model Overview](../Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_235b_transfer/parallel_20261003T144300Z/downstream/models/smoke/native_nvfp4/lcb/README.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_235b_transfer/parallel_20261003T144300Z/downstream/models/smoke/native_nvfp4/lcb/README.md` |
+| [Model Overview](../Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_235b_transfer/parallel_20261003T144300Z/downstream/models/smoke/native_nvfp4/mmlu_pro/README.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_235b_transfer/parallel_20261003T144300Z/downstream/models/smoke/native_nvfp4/mmlu_pro/README.md` |
+| [Model Overview](../Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_235b_transfer/parallel_20261003T144300Z/downstream_offline_cache_20261008T020335Z/models/formal/native_nvfp4/arc/README.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_235b_transfer/parallel_20261003T144300Z/downstream_offline_cache_20261008T020335Z/models/formal/native_nvfp4/arc/README.md` |
+| [Model Overview](../Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_235b_transfer/parallel_20261003T144300Z/downstream_offline_cache_20261008T020335Z/models/formal/native_nvfp4/gsm8k/README.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_235b_transfer/parallel_20261003T144300Z/downstream_offline_cache_20261008T020335Z/models/formal/native_nvfp4/gsm8k/README.md` |
+| [Model Overview](../Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_235b_transfer/parallel_20261003T144300Z/downstream_offline_cache_20261008T020335Z/models/formal/native_nvfp4/lcb/README.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_235b_transfer/parallel_20261003T144300Z/downstream_offline_cache_20261008T020335Z/models/formal/native_nvfp4/lcb/README.md` |
+| [Model Overview](../Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_235b_transfer/parallel_20261003T144300Z/downstream_offline_cache_20261008T020335Z/models/formal/native_nvfp4/mmlu_pro/README.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_235b_transfer/parallel_20261003T144300Z/downstream_offline_cache_20261008T020335Z/models/formal/native_nvfp4/mmlu_pro/README.md` |
+| [Model Overview](../Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_235b_transfer/parallel_20261003T144300Z/downstream_offline_cache_20261008T020335Z/models/smoke/native_nvfp4/arc/README.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_235b_transfer/parallel_20261003T144300Z/downstream_offline_cache_20261008T020335Z/models/smoke/native_nvfp4/arc/README.md` |
+| [Model Overview](../Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_235b_transfer/parallel_20261003T144300Z/downstream_offline_cache_20261008T020335Z/models/smoke/native_nvfp4/gsm8k/README.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_235b_transfer/parallel_20261003T144300Z/downstream_offline_cache_20261008T020335Z/models/smoke/native_nvfp4/gsm8k/README.md` |
+| [Model Overview](../Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_235b_transfer/parallel_20261003T144300Z/downstream_offline_cache_20261008T020335Z/models/smoke/native_nvfp4/lcb/README.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_235b_transfer/parallel_20261003T144300Z/downstream_offline_cache_20261008T020335Z/models/smoke/native_nvfp4/lcb/README.md` |
+| [Model Overview](../Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_235b_transfer/parallel_20261003T144300Z/downstream_offline_cache_20261008T020335Z/models/smoke/native_nvfp4/mmlu_pro/README.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_235b_transfer/parallel_20261003T144300Z/downstream_offline_cache_20261008T020335Z/models/smoke/native_nvfp4/mmlu_pro/README.md` |
+| [topology.txt](../Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_235b_transfer/transfer_20261001T122200Z/memory_execution_fix/gpu_saved_tensor_trial/topology.txt) | `Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_235b_transfer/transfer_20261001T122200Z/memory_execution_fix/gpu_saved_tensor_trial/topology.txt` |
+| [清洗 S1K 后的轨迹校准与 Router 对齐实验](../Native_NVFP4_HiF4_Linear_Puncture/results/reasoning_trace_calibration/clean_s1k_20261016T030238Z/REPORT.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/reasoning_trace_calibration/clean_s1k_20261016T030238Z/REPORT.md` |
+| [两类校准数据与追加 Router 对齐实验记录](../Native_NVFP4_HiF4_Linear_Puncture/results/reasoning_trace_calibration/continue_20261016T135141Z/REPORT.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/reasoning_trace_calibration/continue_20261016T135141Z/REPORT.md` |
+| [校准数据与追加 Router 对齐结果](../Native_NVFP4_HiF4_Linear_Puncture/results/reasoning_trace_calibration/continue_20261016T135141Z/comparison.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/reasoning_trace_calibration/continue_20261016T135141Z/comparison.md` |
+| [轨迹校准实施、验证与测试重合审计](../Native_NVFP4_HiF4_Linear_Puncture/results/reasoning_trace_calibration/run_20261016T132000Z/REPORT.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/reasoning_trace_calibration/run_20261016T132000Z/REPORT.md` |
+| [完整 KL 与轨迹硬 CE：运行交付](../Native_NVFP4_HiF4_Linear_Puncture/results/reasoning_trace_full_kl_ce/run_20261021T030031Z/HANDOFF.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/reasoning_trace_full_kl_ce/run_20261021T030031Z/HANDOFF.md` |
+| [原 B 的完整 KL 与轨迹 next-token 硬 CE 对照](../Native_NVFP4_HiF4_Linear_Puncture/results/reasoning_trace_full_kl_ce/run_20261021T030031Z/PLAN.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/reasoning_trace_full_kl_ce/run_20261021T030031Z/PLAN.md` |
+| [完整 KL / CE 并行评测运行交付](../Native_NVFP4_HiF4_Linear_Puncture/results/reasoning_trace_full_kl_ce/run_20261021T030031Z/parallel_20261021T080148Z/HANDOFF.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/reasoning_trace_full_kl_ce/run_20261021T030031Z/parallel_20261021T080148Z/HANDOFF.md` |
+| [B 最后一层与输出端的词表 Top-mass KL 蒸馏](../Native_NVFP4_HiF4_Linear_Puncture/results/reasoning_trace_last_head/run_20261020T031200Z/PLAN.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/reasoning_trace_last_head/run_20261020T031200Z/PLAN.md` |
+| [B 末层与输出端词表 KL 蒸馏](../Native_NVFP4_HiF4_Linear_Puncture/results/reasoning_trace_last_head/run_20261020T031200Z/comparison.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/reasoning_trace_last_head/run_20261020T031200Z/comparison.md` |
+| [B 模型追加 BF16 Router 校准](../Native_NVFP4_HiF4_Linear_Puncture/results/reasoning_trace_router_bf16/run_20261019T031744Z/PLAN.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/reasoning_trace_router_bf16/run_20261019T031744Z/PLAN.md` |
+| [B 的 BF16 Router 追加实验运行记录](../Native_NVFP4_HiF4_Linear_Puncture/results/reasoning_trace_router_bf16/run_20261019T031744Z/REPORT.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/reasoning_trace_router_bf16/run_20261019T031744Z/REPORT.md` |
+| [B 的 BF16 Router 对齐结果](../Native_NVFP4_HiF4_Linear_Puncture/results/reasoning_trace_router_bf16/run_20261019T031744Z/comparison.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/reasoning_trace_router_bf16/run_20261019T031744Z/comparison.md` |
 | [残差 LoRA 训练结果总结（2026-09-24）](../Native_NVFP4_HiF4_Linear_Puncture/results/residual_lora_compensation/20260922T012547Z/TRAINING_REPORT.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/residual_lora_compensation/20260922T012547Z/TRAINING_REPORT.md` |
+| [残差 LoRA 五组下游评测](../Native_NVFP4_HiF4_Linear_Puncture/results/residual_lora_compensation/20260922T012547Z/downstream/COMPARISON.md) | `Native_NVFP4_HiF4_Linear_Puncture/results/residual_lora_compensation/20260922T012547Z/downstream/COMPARISON.md` |
+| [README.md](../results/minimax_m3/continuation_20261102T084837Z/qualification/generation/model/README.md) | `results/minimax_m3/continuation_20261102T084837Z/qualification/generation/model/README.md` |
+| [MiniMax-M3.1-Flash](../results/minimax_m3/continuation_20261102T084837Z/qualification/generation/model/README_zh.md) | `results/minimax_m3/continuation_20261102T084837Z/qualification/generation/model/README_zh.md` |
+| [1. Install vLLM v0.24.0 (T-Head example)](../results/minimax_m3/continuation_20261102T084837Z/qualification/generation/model/docs/FlagOS-Multi-Chip-Support-and-Downloads.md) | `results/minimax_m3/continuation_20261102T084837Z/qualification/generation/model/docs/FlagOS-Multi-Chip-Support-and-Downloads.md` |
+| [README.md](../results/minimax_m3/continuation_20261102T084837Z/qualification/gsm8k/model/README.md) | `results/minimax_m3/continuation_20261102T084837Z/qualification/gsm8k/model/README.md` |
+| [MiniMax-M3.1-Flash](../results/minimax_m3/continuation_20261102T084837Z/qualification/gsm8k/model/README_zh.md) | `results/minimax_m3/continuation_20261102T084837Z/qualification/gsm8k/model/README_zh.md` |
+| [1. Install vLLM v0.24.0 (T-Head example)](../results/minimax_m3/continuation_20261102T084837Z/qualification/gsm8k/model/docs/FlagOS-Multi-Chip-Support-and-Downloads.md) | `results/minimax_m3/continuation_20261102T084837Z/qualification/gsm8k/model/docs/FlagOS-Multi-Chip-Support-and-Downloads.md` |
+| [README.md](../results/minimax_m3/continuation_20261103T015711Z/formal/aime24/model/README.md) | `results/minimax_m3/continuation_20261103T015711Z/formal/aime24/model/README.md` |
+| [MiniMax-M3.1-Flash](../results/minimax_m3/continuation_20261103T015711Z/formal/aime24/model/README_zh.md) | `results/minimax_m3/continuation_20261103T015711Z/formal/aime24/model/README_zh.md` |
+| [1. Install vLLM v0.24.0 (T-Head example)](../results/minimax_m3/continuation_20261103T015711Z/formal/aime24/model/docs/FlagOS-Multi-Chip-Support-and-Downloads.md) | `results/minimax_m3/continuation_20261103T015711Z/formal/aime24/model/docs/FlagOS-Multi-Chip-Support-and-Downloads.md` |
+| [README.md](../results/minimax_m3/continuation_20261103T015711Z/formal/aime25/model/README.md) | `results/minimax_m3/continuation_20261103T015711Z/formal/aime25/model/README.md` |
+| [MiniMax-M3.1-Flash](../results/minimax_m3/continuation_20261103T015711Z/formal/aime25/model/README_zh.md) | `results/minimax_m3/continuation_20261103T015711Z/formal/aime25/model/README_zh.md` |
+| [1. Install vLLM v0.24.0 (T-Head example)](../results/minimax_m3/continuation_20261103T015711Z/formal/aime25/model/docs/FlagOS-Multi-Chip-Support-and-Downloads.md) | `results/minimax_m3/continuation_20261103T015711Z/formal/aime25/model/docs/FlagOS-Multi-Chip-Support-and-Downloads.md` |
+| [README.md](../results/minimax_m3/continuation_20261103T015711Z/formal/gsm8k/model/README.md) | `results/minimax_m3/continuation_20261103T015711Z/formal/gsm8k/model/README.md` |
+| [MiniMax-M3.1-Flash](../results/minimax_m3/continuation_20261103T015711Z/formal/gsm8k/model/README_zh.md) | `results/minimax_m3/continuation_20261103T015711Z/formal/gsm8k/model/README_zh.md` |
+| [1. Install vLLM v0.24.0 (T-Head example)](../results/minimax_m3/continuation_20261103T015711Z/formal/gsm8k/model/docs/FlagOS-Multi-Chip-Support-and-Downloads.md) | `results/minimax_m3/continuation_20261103T015711Z/formal/gsm8k/model/docs/FlagOS-Multi-Chip-Support-and-Downloads.md` |
+| [README.md](../results/minimax_m3/continuation_20261103T015711Z/formal/mmlu_pro/model/README.md) | `results/minimax_m3/continuation_20261103T015711Z/formal/mmlu_pro/model/README.md` |
+| [MiniMax-M3.1-Flash](../results/minimax_m3/continuation_20261103T015711Z/formal/mmlu_pro/model/README_zh.md) | `results/minimax_m3/continuation_20261103T015711Z/formal/mmlu_pro/model/README_zh.md` |
+| [1. Install vLLM v0.24.0 (T-Head example)](../results/minimax_m3/continuation_20261103T015711Z/formal/mmlu_pro/model/docs/FlagOS-Multi-Chip-Support-and-Downloads.md) | `results/minimax_m3/continuation_20261103T015711Z/formal/mmlu_pro/model/docs/FlagOS-Multi-Chip-Support-and-Downloads.md` |
+| [README.md](../results/minimax_m3/continuation_20261103T015711Z/qualification/aime24/model/README.md) | `results/minimax_m3/continuation_20261103T015711Z/qualification/aime24/model/README.md` |
+| [MiniMax-M3.1-Flash](../results/minimax_m3/continuation_20261103T015711Z/qualification/aime24/model/README_zh.md) | `results/minimax_m3/continuation_20261103T015711Z/qualification/aime24/model/README_zh.md` |
+| [1. Install vLLM v0.24.0 (T-Head example)](../results/minimax_m3/continuation_20261103T015711Z/qualification/aime24/model/docs/FlagOS-Multi-Chip-Support-and-Downloads.md) | `results/minimax_m3/continuation_20261103T015711Z/qualification/aime24/model/docs/FlagOS-Multi-Chip-Support-and-Downloads.md` |
+| [README.md](../results/minimax_m3/continuation_20261103T015711Z/qualification/aime25/model/README.md) | `results/minimax_m3/continuation_20261103T015711Z/qualification/aime25/model/README.md` |
+| [MiniMax-M3.1-Flash](../results/minimax_m3/continuation_20261103T015711Z/qualification/aime25/model/README_zh.md) | `results/minimax_m3/continuation_20261103T015711Z/qualification/aime25/model/README_zh.md` |
+| [1. Install vLLM v0.24.0 (T-Head example)](../results/minimax_m3/continuation_20261103T015711Z/qualification/aime25/model/docs/FlagOS-Multi-Chip-Support-and-Downloads.md) | `results/minimax_m3/continuation_20261103T015711Z/qualification/aime25/model/docs/FlagOS-Multi-Chip-Support-and-Downloads.md` |
+| [README.md](../results/minimax_m3/continuation_20261103T015711Z/qualification/gsm8k/model/README.md) | `results/minimax_m3/continuation_20261103T015711Z/qualification/gsm8k/model/README.md` |
+| [MiniMax-M3.1-Flash](../results/minimax_m3/continuation_20261103T015711Z/qualification/gsm8k/model/README_zh.md) | `results/minimax_m3/continuation_20261103T015711Z/qualification/gsm8k/model/README_zh.md` |
+| [1. Install vLLM v0.24.0 (T-Head example)](../results/minimax_m3/continuation_20261103T015711Z/qualification/gsm8k/model/docs/FlagOS-Multi-Chip-Support-and-Downloads.md) | `results/minimax_m3/continuation_20261103T015711Z/qualification/gsm8k/model/docs/FlagOS-Multi-Chip-Support-and-Downloads.md` |
+| [README.md](../results/minimax_m3/continuation_20261103T015711Z/qualification/lcb/model/README.md) | `results/minimax_m3/continuation_20261103T015711Z/qualification/lcb/model/README.md` |
+| [MiniMax-M3.1-Flash](../results/minimax_m3/continuation_20261103T015711Z/qualification/lcb/model/README_zh.md) | `results/minimax_m3/continuation_20261103T015711Z/qualification/lcb/model/README_zh.md` |
+| [1. Install vLLM v0.24.0 (T-Head example)](../results/minimax_m3/continuation_20261103T015711Z/qualification/lcb/model/docs/FlagOS-Multi-Chip-Support-and-Downloads.md) | `results/minimax_m3/continuation_20261103T015711Z/qualification/lcb/model/docs/FlagOS-Multi-Chip-Support-and-Downloads.md` |
+| [README.md](../results/minimax_m3/continuation_20261103T015711Z/qualification/mmlu_pro/model/README.md) | `results/minimax_m3/continuation_20261103T015711Z/qualification/mmlu_pro/model/README.md` |
+| [MiniMax-M3.1-Flash](../results/minimax_m3/continuation_20261103T015711Z/qualification/mmlu_pro/model/README_zh.md) | `results/minimax_m3/continuation_20261103T015711Z/qualification/mmlu_pro/model/README_zh.md` |
+| [1. Install vLLM v0.24.0 (T-Head example)](../results/minimax_m3/continuation_20261103T015711Z/qualification/mmlu_pro/model/docs/FlagOS-Multi-Chip-Support-and-Downloads.md) | `results/minimax_m3/continuation_20261103T015711Z/qualification/mmlu_pro/model/docs/FlagOS-Multi-Chip-Support-and-Downloads.md` |
+| [README.md](../results/minimax_m3/mxfp4_20261104T015806Z/model/README.md) | `results/minimax_m3/mxfp4_20261104T015806Z/model/README.md` |
+| [MiniMax-M3.1-Flash](../results/minimax_m3/mxfp4_20261104T015806Z/model/README_zh.md) | `results/minimax_m3/mxfp4_20261104T015806Z/model/README_zh.md` |
+| [1. Install vLLM v0.24.0 (T-Head example)](../results/minimax_m3/mxfp4_20261104T015806Z/model/docs/FlagOS-Multi-Chip-Support-and-Downloads.md) | `results/minimax_m3/mxfp4_20261104T015806Z/model/docs/FlagOS-Multi-Chip-Support-and-Downloads.md` |
 
 ## 工具交接记录（7）
 

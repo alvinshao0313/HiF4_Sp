@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 
 
-def evaluate_arc(model, spec_path, *, limit=None):
+def evaluate_arc(model, spec_path, *, limit=None, tensor_parallel_size=2):
     from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.evaluation.vllm_runner import (
         _patch_lm_eval_transformers, _pick_metric,
     )
@@ -20,10 +20,11 @@ def evaluate_arc(model, spec_path, *, limit=None):
     kwargs = build_lm_eval_vllm_kwargs(
         model_path=str(model), hif4_runtime_spec_path=str(spec_path),
         max_model_len=4096, max_num_batched_tokens=4096, seed=42,
+        tensor_parallel_size=tensor_parallel_size,
     )
     lm = VLLM(batch_size="auto", **kwargs)
     core = lm.model.llm_engine.engine_core
-    # This experiment uses vLLM's synchronous multiprocessing client for TP=2.
+    # vLLM's synchronous multiprocessing client owns the output thread.
     output_thread = core.output_queue_thread
     try:
         result = simple_evaluate(
@@ -45,7 +46,7 @@ def evaluate_arc(model, spec_path, *, limit=None):
         if value is not None:
             scores[task] = value
     return {
-        "backend": "lm_eval_vllm", "tensor_parallel_size": 2,
+        "backend": "lm_eval_vllm", "tensor_parallel_size": tensor_parallel_size,
         "kv_cache_dtype": "bfloat16", "enforce_eager": True,
         "max_num_batched_tokens": 4096, "scores": scores,
         "raw_results": result["results"], "hif4_runtime_spec_path": str(spec_path),

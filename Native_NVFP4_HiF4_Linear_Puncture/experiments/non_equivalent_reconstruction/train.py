@@ -11,6 +11,7 @@ import torch
 from transformers import AutoTokenizer
 
 from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.modelopt_moe_checkpoint import load_qwen3_moe_layer_state
+from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.moe_model_spec import Qwen3MoeModelSpec
 from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.moe_semantic_hif4 import NativeQwen3MoELayerRuntime
 from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.data.calibration import build_or_load_calibration
 from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.data.batching import (
@@ -147,6 +148,7 @@ def train(cfg: Config, *, resume=False):
 
 def _train_locked(cfg, out, device, *, resume):
     snapshot = Path(resolve_local_snapshot(cfg.model_path)).resolve()
+    num_layers = Qwen3MoeModelSpec.from_snapshot(snapshot).num_layers
     tokenizer = AutoTokenizer.from_pretrained(snapshot, trust_remote_code=True)
     if tokenizer.pad_token_id is None:
         raise ValueError("source tokenizer must define pad_token_id")
@@ -180,7 +182,7 @@ def _train_locked(cfg, out, device, *, resume):
         progress = {"layer": 0, "next_epoch": 0, "hidden": hidden}
         atomic_save(progress, out / "resume.pt")
         write_json(manifest, out / "manifest.json")
-    for layer in range(progress["layer"], 48):
+    for layer in range(progress["layer"], num_layers):
         print(json.dumps({"event": "layer_start", "layer": layer}), flush=True)
         hidden = progress["hidden"]
         native_state = load_qwen3_moe_layer_state(snapshot, layer, device)
@@ -232,7 +234,7 @@ def _train_locked(cfg, out, device, *, resume):
         gc.collect()
         torch.cuda.empty_cache()
     write_json({"complete": True, "layers": [json.loads((out / f"layers/{i:03d}/metrics.json").read_text())
-                                              for i in range(48)]}, out / "summary.json")
+                                              for i in range(num_layers)]}, out / "summary.json")
 
 
 if __name__ == "__main__":

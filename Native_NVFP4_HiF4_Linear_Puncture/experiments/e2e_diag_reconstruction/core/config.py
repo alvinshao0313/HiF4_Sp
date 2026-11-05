@@ -320,8 +320,8 @@ def validate_train_config(cfg: E2ETrainConfig) -> None:
     if cfg.model_type == "qwen3_moe" and cfg.diag_train_scope != "layer_joint":
         raise ValueError("Qwen3 MoE only allows diag_train_scope=layer_joint")
     if cfg.model_type == "qwen3_moe":
-        if (cfg.num_layers, cfg.num_experts, cfg.top_k) != (48, 128, 8):
-            raise ValueError("Qwen3 MoE config contract must be 48 layers / 128 experts / top8")
+        if (cfg.num_layers, cfg.num_experts, cfg.top_k) not in {(48, 128, 8), (94, 128, 8)}:
+            raise ValueError("Qwen3 MoE config contract must be 48 or 94 layers / 128 experts / top8")
         if cfg.kv_cache_dtype != "bfloat16":
             raise ValueError("Qwen3 MoE formal path requires kv_cache_dtype=bfloat16")
         if cfg.native_has_online_rotation:

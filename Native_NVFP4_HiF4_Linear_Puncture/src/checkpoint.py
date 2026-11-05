@@ -68,15 +68,22 @@ def validate_rotation_source(rotation_source: str | None) -> None:
         raise ValueError(f"invalid rotation_source={rotation_source!r}")
 
 
-def resolve_local_snapshot(model_id: str) -> Path:
-    """Resolve local HF snapshot only; never download or fallback."""
+def resolve_local_snapshot(model_id: str, *, tensor_prefixes: tuple[str, ...] | None = None) -> Path:
+    """Resolve local files, validating all shards or explicitly requested tensors.
+
+    A layer-scoped caller may run once its complete source shards are present;
+    a full-model caller still requires every indexed shard. Never download.
+    """
     try:
         from huggingface_hub.errors import LocalEntryNotFoundError
     except Exception:  # pragma: no cover
         LocalEntryNotFoundError = Exception  # type: ignore[misc,assignment]
 
     try:
-        path = snapshot_download(repo_id=model_id, local_files_only=True)
+        local_path = Path(model_id).expanduser()
+        path = local_path.resolve() if local_path.is_dir() else snapshot_download(
+            repo_id=model_id, local_files_only=True
+        )
     except LocalEntryNotFoundError:
         _fail(
             "Native NVFP4 checkpoint is not fully available in local HF cache.\n"
@@ -102,9 +109,20 @@ def resolve_local_snapshot(model_id: str) -> Path:
         )
 
     index = json.loads(index_path.read_text(encoding="utf-8"))
+    weight_map = index["weight_map"]
+    if tensor_prefixes is not None:
+        if not tensor_prefixes or any(not prefix for prefix in tensor_prefixes):
+            raise ValueError("tensor_prefixes must contain nonempty prefixes")
+        for prefix in tensor_prefixes:
+            if not any(key.startswith(prefix) for key in weight_map):
+                raise ValueError(f"tensor prefix is absent from checkpoint index: {prefix}")
+        weight_map = {key: shard for key, shard in weight_map.items() if key.startswith(tensor_prefixes)}
+    required_keys: dict[str, set[str]] = defaultdict(set)
+    for key, shard in weight_map.items():
+        required_keys[shard].add(key)
     missing: list[str] = []
     corrupt: list[str] = []
-    for shard in sorted(set(index["weight_map"].values())):
+    for shard in sorted(required_keys):
         shard_path = snapshot / shard
         if not shard_path.is_file():
             missing.append(shard)
@@ -114,7 +132,9 @@ def resolve_local_snapshot(model_id: str) -> Path:
             continue
         try:
             with safe_open(str(shard_path), framework="pt") as handle:
-                _ = list(handle.keys())
+                absent = required_keys[shard] - set(handle.keys())
+                if absent:
+                    raise ValueError(f"indexed tensors missing from shard: {sorted(absent)}")
         except Exception as exc:  # noqa: BLE001 — incomplete/corrupt shard must fail preflight
             corrupt.append(f"{shard}:{type(exc).__name__}:{exc}")
     if missing or corrupt:

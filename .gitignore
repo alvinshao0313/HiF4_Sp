@@ -76,3 +76,11 @@ AGENTS.md
 *.yaml
 *.jsonl
 Inference_Paradigm_Conversion/assets
+
+# Vendored MiniMax source and its regression test are code, not model weights.
+!3rdparty/vllm/vllm/model_executor/models/
+3rdparty/vllm/vllm/model_executor/models/*
+!3rdparty/vllm/vllm/model_executor/models/minimax_m3/
+!3rdparty/vllm/tests/models/
+3rdparty/vllm/tests/models/*
+!3rdparty/vllm/tests/models/test_minimax_m3_backport.py

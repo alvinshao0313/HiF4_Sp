@@ -61,10 +61,15 @@ def _copy_json_without_quantization(src: Path, dst: Path) -> None:
 def _copy_tokenizer_assets(src: Path, out: Path) -> None:
     """Copy tokenizer/chat assets as real files (no symlinks).
 
-    NVIDIA Qwen3 NVFP4 keeps chat_template in chat_template.jinja; omitting it
-    makes tokenizer.chat_template None and lighteval falls back to raw prompts.
+    Preserve the source template, whether stored separately (30B) or inside
+    tokenizer_config.json (235B), so evaluation never falls back to raw prompts.
     """
     missing = [name for name in TOKENIZER_ASSET_NAMES if not (src / name).is_file()]
+    embedded_template = None
+    if "chat_template.jinja" in missing and (src / "tokenizer_config.json").is_file():
+        embedded_template = json.loads((src / "tokenizer_config.json").read_text(encoding="utf-8")).get("chat_template")
+        if isinstance(embedded_template, str) and embedded_template:
+            missing.remove("chat_template.jinja")
     if missing:
         raise FileNotFoundError(
             f"source snapshot missing tokenizer assets {missing}: {src}"
@@ -73,7 +78,10 @@ def _copy_tokenizer_assets(src: Path, out: Path) -> None:
         target = out / name
         if target.exists() or target.is_symlink():
             target.unlink()
-        shutil.copy2(src / name, target)
+        if name == "chat_template.jinja" and not (src / name).is_file():
+            target.write_text(embedded_template, encoding="utf-8")
+        else:
+            shutil.copy2(src / name, target)
 
 
 def _load_diag(spec, diag_mode: str, z: dict[str, torch.Tensor]):

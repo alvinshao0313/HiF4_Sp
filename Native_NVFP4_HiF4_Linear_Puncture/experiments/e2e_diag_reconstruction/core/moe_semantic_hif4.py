@@ -100,6 +100,7 @@ class MoEFusableDiagState(nn.Module):
         hidden_size: int = 2048,
         num_experts: int = 128,
         moe_intermediate_size: int = 768,
+        num_attention_heads: int = 32,
         num_key_value_heads: int = 4,
         head_dim: int = 128,
     ) -> None:
@@ -108,6 +109,7 @@ class MoEFusableDiagState(nn.Module):
         self.hidden_size = int(hidden_size)
         self.num_experts = int(num_experts)
         self.moe_intermediate_size = int(moe_intermediate_size)
+        self.num_attention_heads = int(num_attention_heads)
         self.num_key_value_heads = int(num_key_value_heads)
         self.head_dim = int(head_dim)
         self.z_qkv = nn.Parameter(torch.zeros(hidden_size, dtype=torch.float32))
@@ -122,7 +124,10 @@ class MoEFusableDiagState(nn.Module):
         return _scale_from_z(self.z_vo)
 
     def d_vo_expanded(self) -> torch.Tensor:
-        return expand_vo_scale_qwen3_moe(self.d_vo())
+        return expand_vo_scale_qwen3_moe(
+            self.d_vo(), num_attention_heads=self.num_attention_heads,
+            num_key_value_heads=self.num_key_value_heads, head_dim=self.head_dim,
+        )
 
     def d_gu(self) -> torch.Tensor:
         return _scale_from_z(self.z_gu)
@@ -216,6 +221,7 @@ def build_moe_diag_state(spec, diag_mode: str) -> nn.Module:
             hidden_size=spec.hidden_size,
             num_experts=spec.num_experts,
             moe_intermediate_size=spec.moe_intermediate_size,
+            num_attention_heads=spec.num_attention_heads,
             num_key_value_heads=spec.num_key_value_heads,
             head_dim=spec.head_dim,
         )

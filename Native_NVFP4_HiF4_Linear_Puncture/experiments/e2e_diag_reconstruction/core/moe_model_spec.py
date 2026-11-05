@@ -1,4 +1,4 @@
-"""Immutable contract for the native Qwen3-30B-A3B ModelOpt NVFP4 checkpoint.
+"""Immutable contracts for native Qwen3 30B/235B ModelOpt NVFP4 checkpoints.
 
 The MoE path deliberately has its own contract instead of extending the legacy
 Qwen3-8B/H16 assumptions.  Validation only reads JSON index metadata: it never
@@ -15,6 +15,7 @@ from Native_NVFP4_HiF4_Linear_Puncture.src.checkpoint import resolve_local_snaps
 
 
 QWEN3_30B_A3B_NVFP4 = "nvidia/Qwen3-30B-A3B-NVFP4"
+QWEN3_235B_A22B_NVFP4 = "nvidia/Qwen3-235B-A22B-NVFP4"
 NVFP4_SUFFIXES = ("weight", "weight_scale", "weight_scale_2", "input_scale")
 ATTENTION_PROJECTIONS = ("q_proj", "k_proj", "v_proj", "o_proj")
 EXPERT_PROJECTIONS = ("gate_proj", "up_proj", "down_proj")
@@ -74,11 +75,11 @@ class Qwen3MoeModelSpec:
         return attention + experts
 
     @classmethod
-    def from_snapshot(cls, snapshot: str | Path, *, source_model: str = QWEN3_30B_A3B_NVFP4) -> "Qwen3MoeModelSpec":
+    def from_snapshot(cls, snapshot: str | Path, *, source_model: str | None = None) -> "Qwen3MoeModelSpec":
         root = Path(snapshot)
         config = json.loads((root / "config.json").read_text(encoding="utf-8"))
         spec = cls(
-            source_model=source_model,
+            source_model=source_model if source_model is not None else str(root.resolve()),
             architecture=(config.get("architectures") or [""])[0],
             model_type=str(config.get("model_type", "")),
             hidden_size=int(config.get("hidden_size", -1)),
@@ -111,19 +112,19 @@ class Qwen3MoeModelSpec:
         expected = {
             "architecture": "Qwen3MoeForCausalLM",
             "model_type": "qwen3_moe",
-            "hidden_size": 2048,
-            "num_layers": 48,
-            "num_attention_heads": 32,
             "num_key_value_heads": 4,
             "head_dim": 128,
             "num_experts": 128,
             "top_k": 8,
-            "moe_intermediate_size": 768,
             "decoder_sparse_step": 1,
         }
         for field, value in expected.items():
             if getattr(self, field) != value:
                 errors.append(f"{field}={getattr(self, field)!r} != {value!r}")
+        geometry = (self.hidden_size, self.num_layers, self.num_attention_heads,
+                    self.moe_intermediate_size)
+        if geometry not in {(2048, 48, 32, 768), (4096, 94, 64, 1536)}:
+            errors.append(f"unsupported Qwen3 MoE geometry={geometry!r}")
         if self.mlp_only_layers:
             errors.append(f"mlp_only_layers={self.mlp_only_layers!r} must be empty")
         if not self.norm_topk_prob:
