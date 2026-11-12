@@ -1,0 +1,14 @@
+{
+  "modelopt/torch/kernels/quantization/common/nvfp4_quant.py": {
+    "url": "https://raw.githubusercontent.com/NVIDIA/Model-Optimizer/9aeff419f3afa1b27e7bcc10dc6a90cc68df4d77/modelopt/torch/kernels/quantization/common/nvfp4_quant.py",
+    "sha256": "6aad0b4448af343b06457f176b163043cae84380dd6b67a8820a667830f54676"
+  },
+  "modelopt/torch/kernels/quantization/gemm/fp4_kernel.py": {
+    "url": "https://raw.githubusercontent.com/NVIDIA/Model-Optimizer/9aeff419f3afa1b27e7bcc10dc6a90cc68df4d77/modelopt/torch/kernels/quantization/gemm/fp4_kernel.py",
+    "sha256": "62333d74e42873afde66f5f9216ab1667a406c746f462614dc0de58a917fc5ef"
+  },
+  "modelopt/torch/kernels/quantization/gemm/tensor_quant_mx.cu": {
+    "url": "https://raw.githubusercontent.com/NVIDIA/Model-Optimizer/9aeff419f3afa1b27e7bcc10dc6a90cc68df4d77/modelopt/torch/kernels/quantization/gemm/tensor_quant_mx.cu",
+    "sha256": "89d6058cf9550db9a9904589e1f566d9aa52f5fed5e0a8b99e4cf05052221b78"
+  }
+}

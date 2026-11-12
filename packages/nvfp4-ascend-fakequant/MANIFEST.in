@@ -1,0 +1,5 @@
+include README.md THIRD_PARTY_NOTICES.md
+recursive-include licenses *.txt
+recursive-include examples *.py
+recursive-include provenance *.json *.py *.cu
+recursive-include src/nvfp4_npu *.json

@@ -1,0 +1,54 @@
+{
+  "package": "nvfp4-ascend-fakequant",
+  "version": "0.1.0",
+  "packaged_on": "2026-11-12",
+  "files": {
+    "activation_quant.py": {
+      "project_source": "nvfp4_eval/activation_quant.py",
+      "sha256": "4250ba300d919ddecd297217b28eb3a0e29fef8295e2fcf66ce31dc6443ee86c",
+      "copy": "byte-for-byte"
+    },
+    "checkpoint_quant.py": {
+      "project_source": "nvfp4_eval/quant.py",
+      "sha256": "1faecd07333b6ce47d2e39fecd5a436fb49df2a219345f5f55193f540fd5abb8",
+      "copy": "byte-for-byte"
+    }
+  },
+  "environment": {
+    "python": "3.11.18",
+    "architecture": "aarch64",
+    "hardware": "Ascend A3 (910_93)",
+    "cann": "9.1.0",
+    "packages": {
+      "torch": "2.10.0+cpu",
+      "torch-npu": "2.10.0.post4",
+      "triton": "3.5.0",
+      "triton-ascend": "3.2.2",
+      "numpy": "1.26.4"
+    }
+  },
+  "upstream": {
+    "modelopt/torch/kernels/quantization/common/nvfp4_quant.py": {
+      "url": "https://raw.githubusercontent.com/NVIDIA/Model-Optimizer/9aeff419f3afa1b27e7bcc10dc6a90cc68df4d77/modelopt/torch/kernels/quantization/common/nvfp4_quant.py",
+      "sha256": "6aad0b4448af343b06457f176b163043cae84380dd6b67a8820a667830f54676"
+    },
+    "modelopt/torch/kernels/quantization/gemm/fp4_kernel.py": {
+      "url": "https://raw.githubusercontent.com/NVIDIA/Model-Optimizer/9aeff419f3afa1b27e7bcc10dc6a90cc68df4d77/modelopt/torch/kernels/quantization/gemm/fp4_kernel.py",
+      "sha256": "62333d74e42873afde66f5f9216ab1667a406c746f462614dc0de58a917fc5ef"
+    },
+    "modelopt/torch/kernels/quantization/gemm/tensor_quant_mx.cu": {
+      "url": "https://raw.githubusercontent.com/NVIDIA/Model-Optimizer/9aeff419f3afa1b27e7bcc10dc6a90cc68df4d77/modelopt/torch/kernels/quantization/gemm/tensor_quant_mx.cu",
+      "sha256": "89d6058cf9550db9a9904589e1f566d9aa52f5fed5e0a8b99e4cf05052221b78"
+    }
+  },
+  "numerics": {
+    "activation_block": 16,
+    "activation_block_scale": "E4M3FN",
+    "values": "E2M1",
+    "rounding": "nearest-even",
+    "compute": "BF16",
+    "kv": "E4M3FN fake quantization; BF16 storage"
+  },
+  "scope": "Inference operators; no model weights, datasets, vLLM adapter, or MXFP4 conversion code",
+  "original_validation_sha256": "1d3126dbbf98b067f601fdee2c99b5ddf23e2c293e560b8b09caf7735a2cefa7"
+}
