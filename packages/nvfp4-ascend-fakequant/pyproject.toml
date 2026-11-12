@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nvfp4-ascend-fakequant"
+version = "0.1.0"
+description = "NVFP4 weight and activation emulation with FP8 KV fake quantization on Ascend"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "torch>=2.10,<2.11",
+  "torch-npu==2.10.0.post4",
+  "triton-ascend==3.2.2",
+]
+license-files = ["licenses/*.txt", "THIRD_PARTY_NOTICES.md"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+nvfp4_npu = ["provenance.json"]

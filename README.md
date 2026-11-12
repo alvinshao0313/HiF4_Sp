@@ -1,9 +1,10 @@
 # HiF4_Sp
 
-本仓库用于两件事：
+本仓库提供以下功能：
 
 - 用本仓库自带的 vLLM + lighteval 跑评测。
 - 用 HiFloat4 对 Qwen3.5 做 RTN / GPTQ fake-quant，并保存 Hugging Face 格式模型。
+- 在 Ascend 上独立调用 NVFP4 权重解码、NVFP4 激活与 FP8 KV cache 伪量化算子。
 
 当前只维护一个 conda 环境：`hif4`。不再需要单独的 `qhif4` / `qwen35` 环境，也没有单独的旧安装脚本入口。
 
@@ -75,6 +76,19 @@ python -c "import torch, vllm, vllm._C; import HiFloat4.main as h; from vllm.mod
 ├── main.py          # vLLM + lighteval 评测入口
 └── install.sh
 ```
+
+## Ascend NVFP4 伪量化算子
+
+独立包位于 [`packages/nvfp4-ascend-fakequant`](packages/nvfp4-ascend-fakequant/README.md)，Python 导入名为 `nvfp4_npu`。在已经配置好 CANN、PyTorch NPU 和 Triton Ascend 的 `hif4` 环境中，从仓库根目录安装：
+
+```bash
+conda activate hif4
+python -m pip install --no-deps --no-build-isolation ./packages/nvfp4-ascend-fakequant
+python packages/nvfp4-ascend-fakequant/examples/basic.py --device cpu
+ASCEND_RT_VISIBLE_DEVICES=0 python packages/nvfp4-ascend-fakequant/examples/basic.py --device npu:0
+```
+
+算子模拟低精度操作数的误差，实际计算和 KV 存储使用 BF16。安装环境、API、数值规则及来源许可证见包内 README。
 
 ## 评测
 
