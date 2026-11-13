@@ -9,6 +9,7 @@
 | 主题 | 正文 |
 | --- | --- |
 | 评测、量化命令与项目总览 | [仓库 README](../README.md) |
+| Qwen3-30B-A3B 官方 BF16 GPQA | [TP8、顺序三轮均值与官方权重核验](experience/records/qwen3_bf16_gpqa_20261111.md) |
 | 环境安装与排错入口 | [安装指南](guides/install.md) |
 | MiniMax-M3.1-Flash 文本推理回移 | [独立入口、已验证范围与待验项](guides/minimax_m3.md) · [NVFP4→MXFP4 权重与激活对比](guides/minimax_mxfp4.md) |
 | HiFloat4 GPU fake quant 实现 | [量化流程](guides/hif4_gpu_quant_flow.md) |
@@ -21,10 +22,15 @@
 
 | 研究主题 | 入口 |
 | --- | --- |
+| 原生 NVFP4 GPQA Diamond 基线 | [Qwen 推荐参数、ModelScope 数据与执行记录](experience/records/nvfp4_gpqa_20261109.md) |
+| Qwen3 路由专家 MXFP4／旋转／UOS 对照 | [原转换入口](../Native_NVFP4_HiF4_Linear_Puncture/experiments/qwen3_mxfp4/README.md) · [UOS c7.25](../Native_NVFP4_HiF4_Linear_Puncture/experiments/qwen3_mxfp4_uos/README.md) · [G256／G512 二级 scale 计划](../Native_NVFP4_HiF4_Linear_Puncture/experiments/qwen3_mxfp4_dualscale/PLAN.md) · [CPU／GPU 证据与 GPQA×10 状态](experience/records/qwen3_mxfp4_20261109.md) |
+| H32 与 R16 扩展 R32 下游对照 | [LCB／MMLU-Pro 每题10次、ARC-E/C 五轮评测入口](../Native_NVFP4_HiF4_Linear_Puncture/experiments/qwen3_mxfp4_rotation_eval/README.md) |
+| 八候选 GPQA 的 AISBench prompt 重测 | [初始TP4协议、BF16 KV与取消记录](../Native_NVFP4_HiF4_Linear_Puncture/experiments/qwen3_aisbench_gpqa/README.md) · [G512获授权改TP2的验证与接续](../Native_NVFP4_HiF4_Linear_Puncture/experiments/qwen3_mxfp4_dualscale_tp2/README.md) |
 | 可学习对角变换、逐层重构 | [e2e_diag_reconstruction](../Native_NVFP4_HiF4_Linear_Puncture/experiments/e2e_diag_reconstruction/README.md) |
 | 不等价变换、矩阵共享与 router loss | [non_equivalent_reconstruction](../Native_NVFP4_HiF4_Linear_Puncture/experiments/non_equivalent_reconstruction/README.md) |
 | norm / DIAG / 对称旋转与 KL 消融 | [模块消融方案与运行记录](../Native_NVFP4_HiF4_Linear_Puncture/experiments/module_design_ablation/PLAN.md) |
 | matrix_norm 数据高效与短程转换 | [精度/耗时目标与独立实验方案](../Native_NVFP4_HiF4_Linear_Puncture/experiments/matrix_norm_efficiency/PLAN.md) · [五任务结果与成本](experience/records/matrix_norm_efficiency_20261104.md) |
+| H-only 矩阵解析更新 | [闭式代理与CPU单Linear验证](../Native_NVFP4_HiF4_Linear_Puncture/experiments/matrix_only_analytic/README.md) |
 | matrix_norm 上的 Ban 动态专家剪枝 | [开关、校准与推理入口](../Native_NVFP4_HiF4_Linear_Puncture/experiments/ban/README.md) |
 | 自生成轨迹重新校准 Ban | [独立入口、专家预算与全量 MMLU-Pro 对照](../Native_NVFP4_HiF4_Linear_Puncture/experiments/ban_trace_calibration/README.md) |
 | 校准轨迹数据对比与追加 Router 对齐 | [实验入口与数据隔离状态](../Native_NVFP4_HiF4_Linear_Puncture/experiments/reasoning_trace_calibration/README.md) |

@@ -6,6 +6,10 @@
 
 | 主题 | 记录 | 相关经验 |
 | --- | --- | --- |
+| 2026-11-11 Qwen3 官方 BF16 GPQA | [TP8、官方权重与顺序三轮均值](qwen3_bf16_gpqa_20261111.md) | [评测协议与缓存隔离](../lessons/evaluation_evidence.md) |
+| 2026-11-09 原生 NVFP4 GPQA Diamond | [Qwen 推荐采样、ModelScope 数据与 TP4 基线](nvfp4_gpqa_20261109.md) | [评测协议与缓存隔离](../lessons/evaluation_evidence.md) |
+| 2026-11-09 起 Qwen3 路由专家 MXFP4 | [直接转换／旋转／UOS、CPU／GPU 证据与 GPQA×10](qwen3_mxfp4_20261109.md) | [格式与计算边界](../lessons/fake_quant_boundaries.md) |
+| 2026-11-05 H-only 闭式代理 CPU诊断 | [真实q_proj、Adam对照与验证退化](matrix_only_analytic_20261105.md) | [量化代理与留出误差](../lessons/fake_quant_boundaries.md) |
 | 2026-11-04 matrix_norm短程转换五任务 | [random50_e5完整结果、AIME复核与成本](matrix_norm_efficiency_20261104.md) | [评测与结论边界](../lessons/evaluation_evidence.md) |
 | 2026-10-28 自生成轨迹重新校准 Ban | [三组对照、LCB 与全量 MMLU-Pro](ban_trace_calibration_20261028.md) | [评测与数据隔离](../lessons/evaluation_evidence.md) |
 | 2026-10-26 235B matrix_norm 自生成轨迹转换 | [实现、数据准备与 TP8 资源阻塞](qwen3_235b_matrix_norm_20261026.md) | [训练执行验证](../lessons/model_transfer_execution.md) · [评测协议](../lessons/evaluation_evidence.md) |

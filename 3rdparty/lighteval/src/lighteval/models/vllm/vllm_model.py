@@ -178,6 +178,7 @@ class VLLMModelConfig(ModelConfig):
     linear_backend: str = "auto"
     moe_backend: str = "auto"
     kv_cache_dtype: str = "auto"
+    kv_cache_memory_bytes: PositiveInt | None = None
     # [hif4 quant] Forward vLLM additional_config so local vLLM patches can
     # enable HiF4 fake activation quantization from the eval entrypoint.
     additional_config: dict | None = None
@@ -296,6 +297,8 @@ class VLLMModel(LightevalModel):
         }
         if config.additional_config:
             self.model_args["additional_config"] = config.additional_config
+        if config.kv_cache_memory_bytes is not None:
+            self.model_args["kv_cache_memory_bytes"] = config.kv_cache_memory_bytes
 
         if config.quantization is not None:
             self.model_args["quantization"] = config.quantization

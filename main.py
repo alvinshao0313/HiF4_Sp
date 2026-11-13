@@ -348,6 +348,12 @@ def parse_args():
         help="传给 vLLM：kv_cache_dtype（如 auto / bfloat16 / fp8 / fp8_e4m3 / fp8_e5m2）。默认 auto。",
     )
     parser.add_argument(
+        "--kv_cache_memory_bytes",
+        type=int,
+        default=None,
+        help="每卡显式 KV 缓存字节数；设置后由此值决定 KV 预算，不使用 gpu_memory_utilization 自动估算。",
+    )
+    parser.add_argument(
         "--hif4_runtime_spec",
         type=str,
         default="",
@@ -546,6 +552,7 @@ def main():
         linear_backend=args.linear_backend,
         moe_backend=moe_backend,
         kv_cache_dtype=args.kv_cache_dtype,
+        kv_cache_memory_bytes=args.kv_cache_memory_bytes,
         enable_prefix_caching=False if args.kv_quant_recent_size > 0 else None,
         generation_parameters=GenerationParameters(
             temperature=args.temperature,

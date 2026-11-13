@@ -153,6 +153,7 @@
 - 非 reasoning 的普通下游任务，如 ARC、MMLU，使用 `lm_eval`。
 - reasoning 任务，包括 MMLU-Pro、GSM8K，使用 `lighteval`，通过仓库根目录 `main.py` 和 vLLM 运行。
 - MMLU-Pro 默认 `max_samples=300`，禁止使用 `lm_eval` 运行 MMLU-Pro。
+- 后续评测验证算子兼容性、显存和吞吐后优先使用 TP2，按授权资源并行两卡组；已启动评测保持原 TP 至结束，其余评测协议不变。
 
 ### 3. shell 脚本
 

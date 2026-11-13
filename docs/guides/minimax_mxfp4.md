@@ -68,10 +68,12 @@ FP32 scale；不调用硬编码 NVFP4 group-16/E4M3 的 wrapper。末端仍用�
 - [接续状态](../../results/minimax_m3/mxfp4_20261104T015806Z/state.json)
 - [启动前协议与源码核验](../../results/minimax_m3/mxfp4_20261104T015806Z/prelaunch_validation.json)
 
-转换 PID 为 956178，接续控制器 PID 为 965825。截至北京时间 10:11，已有 4 个分片、
-1,920 个矩阵通过保存重载校验，接续控制器等待完整转换；GPU 数值/整模型短测和正式
-评测尚未执行。具体见 [交付快照](../../results/minimax_m3/mxfp4_20261104T015806Z/handoff.json)，
-该快照不代表之后阶段已完成。
+2026-11-07：全部 21,888 个专家矩阵已完成转换。按用户要求，已停止仍在等待 NVFP4
+基线的 MXFP4 接续控制器 PID 965825；GPU 数值/整模型短测和正式评测均未启动，
+也不会在 NVFP4 LCB 完成后自动接续。当前 NVFP4 LCB 保持运行，转换权重、日志和
+已有结果保留。停止身份核验与执行结果见
+[停止记录](../../results/minimax_m3/mxfp4_20261104T015806Z/stop_record.json)。
+[原交付快照](../../results/minimax_m3/mxfp4_20261104T015806Z/handoff.json) 仅记录当时状态。
 
 以下命令描述已启动的独立转换，不能对当前输出目录重复执行：
 
