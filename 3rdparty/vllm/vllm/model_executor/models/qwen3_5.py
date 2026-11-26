@@ -507,6 +507,11 @@ class Qwen3_5ForCausalLMBase(
                 self.lm_head = ParallelLMHead(
                     config.vocab_size,
                     config.hidden_size,
+                    quant_config=(
+                        self.quant_config
+                        if getattr(self.quant_config, "quantize_lm_head", False)
+                        else None
+                    ),
                     prefix=maybe_prefix(prefix, "lm_head"),
                 )
         else:

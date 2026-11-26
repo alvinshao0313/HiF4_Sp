@@ -2,18 +2,18 @@
 
 这些目录已退出当前“格式转换损失补偿”主线，但没有直接丢弃，便于以后查阅实验定义和历史报告。
 
-## 当前主线仍在仓库原路径
+## 当前主线在维护包
 
-- 可学习对角变换：`Native_NVFP4_HiF4_Linear_Puncture/experiments/e2e_diag_reconstruction/`、Native `src/` 对角搜索和共享格式代码。
-- 不等价变换：`Native_NVFP4_HiF4_Linear_Puncture/experiments/non_equivalent_reconstruction/`。
-- 优化目标：`internal_error_accumulation/`、`kl_direction_reuse/`、`progressive_error_cancellation/`，以及 `long_trajectory_stability/real_vllm_hooks/`。
+- 可学习对角变换：`fp4_convert/experiments/e2e_diag_reconstruction/`、`fp4_convert/src/` 对角搜索和共享格式代码。
+- 不等价变换：`fp4_convert/experiments/non_equivalent_reconstruction/`。
+- 优化目标：`fp4_convert/experiments/` 下的 `internal_error_accumulation/`、`kl_direction_reuse/`、`progressive_error_cancellation/`，以及 `long_trajectory_stability/real_vllm_hooks/`。旧命名空间只保留历史产物和证据链接，见[归档入口](../README.md)。
 
 ## 本次归档
 
 - `native_qwen3_8b/activation_3d_viz/`：旧 Qwen3-8B 激活可视化。
 - `native_qwen3_8b/h4_block_rotation/`：旧 Qwen3-8B H4 block rotation 实验。
-- `native_qwen3_8b/diag_gradient/`：旧 DIAG/H4/R64 实验脚本和报告；当前仍被 30B 主线引用的 `r64_transform.py` 保留在原路径。
-- `hifloat4/rotation/`：独立 HiFloat4 rotation 实验；Native 当前使用的是 `Native.../src/rotation.py`，两者不是同一实现。
+- `native_qwen3_8b/diag_gradient/`：旧 DIAG/H4/R64 实验脚本和报告；当前 30B 主线使用 `fp4_convert/experiments/diag_gradient/r64_transform.py`，旧论文引用另保留冻结版本。
+- `hifloat4/rotation/`：独立 HiFloat4 rotation 实验；Native 当前使用的是 `fp4_convert/src/rotation.py`，两者不是同一实现。
 - `qad/QAD/`、`qad/ScaleTuning/`：QAD 量化实验及其辅助代码，当前三条主线没有 import 引用。
 
 `HiFloat4/permutation_optimization/` 的源码此前已经处于用户现有删除状态，本次没有恢复；空目录已移除。

@@ -12,7 +12,7 @@ from tools.minimax_m3_eval.workflow import (
     command, join_gpus, model_view, verify_bindings, wait_predecessor,
 )
 from tools.minimax_m3_eval.report import summarize
-from Native_NVFP4_HiF4_Linear_Puncture.experiments.ban_trace_calibration.processes import require_free
+from fp4_convert.experiments.ban_trace_calibration.processes import require_free
 
 
 def now():

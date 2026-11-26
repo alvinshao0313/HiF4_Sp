@@ -7,7 +7,7 @@ full_e5、random50_e5、coverage50_e5均完成48层独立训练和开发评测�
 
 唯一正式运行目录为
 [run_20261029T023839Z](../../../Native_NVFP4_HiF4_Linear_Puncture/results/matrix_norm_efficiency/run_20261029T023839Z/)。
-方案与边界见[PLAN.md](../../../Native_NVFP4_HiF4_Linear_Puncture/experiments/matrix_norm_efficiency/PLAN.md)。
+方案与边界见[PLAN.md](../../../fp4_convert/experiments/matrix_norm_efficiency/PLAN.md)。
 本次GPU0/1接续的全部生成于北京时间2026-11-03 21:20完成；11月4日按既定最终提交
 评分完成余下5条AIME文本复核和CPU汇总。没有重跑推理、重训、修改评分定义或安装依赖。
 

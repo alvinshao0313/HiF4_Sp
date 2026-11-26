@@ -20,18 +20,18 @@ VLLM_ROOT = REPO_ROOT / "3rdparty" / "vllm"
 if str(VLLM_ROOT) not in sys.path:
     sys.path.insert(0, str(VLLM_ROOT))
 
-from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.modelopt_moe_checkpoint import (  # noqa: E402
+from fp4_convert.experiments.e2e_diag_reconstruction.core.modelopt_moe_checkpoint import (  # noqa: E402
     load_qwen3_moe_layer_state,
     release_qwen3_moe_layer_state,
 )
-from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.moe_model_spec import (  # noqa: E402
+from fp4_convert.experiments.e2e_diag_reconstruction.core.moe_model_spec import (  # noqa: E402
     QWEN3_30B_A3B_NVFP4,
 )
-from Native_NVFP4_HiF4_Linear_Puncture.experiments.e2e_diag_reconstruction.core.moe_semantic_hif4 import (  # noqa: E402
+from fp4_convert.experiments.e2e_diag_reconstruction.core.moe_semantic_hif4 import (  # noqa: E402
     native_nvfp4_linear,
     qdq_native_nvfp4,
 )
-from Native_NVFP4_HiF4_Linear_Puncture.src.checkpoint import resolve_local_snapshot  # noqa: E402
+from fp4_convert.src.checkpoint import resolve_local_snapshot  # noqa: E402
 
 
 def _metrics(a: torch.Tensor, b: torch.Tensor) -> dict[str, float]:

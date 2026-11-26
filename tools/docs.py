@@ -10,7 +10,8 @@ from urllib.parse import unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 INDEX = ROOT / "docs/INDEX.md"
-VENDOR = {"3rdparty", "NVFP4/llm-compressor"}
+VENDOR = {"3rdparty", "archive/reference/llm_compressor_examples"}
+FROZEN_SOURCE = "Native_NVFP4_HiF4_Linear_Puncture"
 SKIP_DIRS = {".git", ".cache", "__pycache__", ".pytest_cache", "node_modules", ".venv", "venv"}
 EXTENSIONS = {".md", ".mdc", ".rst", ".txt", ".adoc", ".org"}
 NON_DOCS = {"requirements.txt", "merges.txt", "vocab.txt"}
@@ -36,6 +37,10 @@ SCOPES = {
 def documents():
     for directory, dirs, names in os.walk(ROOT, followlinks=False):
         base = Path(directory)
+        # Keep historical plans/results searchable without duplicating frozen code docs.
+        if base == ROOT / FROZEN_SOURCE:
+            dirs[:] = [name for name in dirs if name in {"plans", "results"}]
+            names = []
         dirs[:] = sorted(
             name for name in dirs
             if name not in SKIP_DIRS
@@ -105,7 +110,7 @@ def render_index(entries):
         "## 第三方入口", "",
         "- [vLLM](../3rdparty/vllm/README.md)",
         "- [lighteval](../3rdparty/lighteval/README.md)",
-        "- [llm-compressor 目录](../NVFP4/llm-compressor/)", "",
+        "- [本地上游示例与参考说明](../archive/reference/README.md)", "",
     ]
     return "\n".join(lines)
 

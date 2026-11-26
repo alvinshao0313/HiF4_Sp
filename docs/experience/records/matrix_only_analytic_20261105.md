@@ -10,7 +10,7 @@
 - 既有隔离校准池最长4条train与4条validation，每条均匀取64个token，256+256；训练3 code+1 math，验证4 code。
   层0的embedding/RMSNorm逐token独立，本次输入无需执行上下文；不外推为更深层或专家投影的采样方法。
 - H-only Adam20步、lr=3e-4、无weight decay、固定学习率；闭式代理2次顺序扫块，阻尼0.01，真实QDQ回溯。
-  公式、精度及量化轴见[实现说明](../../../Native_NVFP4_HiF4_Linear_Puncture/experiments/matrix_only_analytic/README.md)。
+  公式、精度及量化轴见[实现说明](../../../fp4_convert/experiments/matrix_only_analytic/README.md)。
 - `hif4` Python3.11.13、PyTorch2.10.0+cu128，CPU两线程，seed=42；CUDA未初始化。
 - RUN：`Native_NVFP4_HiF4_Linear_Puncture/results/matrix_only_analytic/cpu_linear_20261105T085702Z`，PID2232623，退出码0。
   [生成报告](../../../Native_NVFP4_HiF4_Linear_Puncture/results/matrix_only_analytic/cpu_linear_20261105T085702Z/REPORT.md)、

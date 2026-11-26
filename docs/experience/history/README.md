@@ -11,7 +11,7 @@
 ## 研究方案与模型线
 
 - [Qwen3-30B-A3B 方案沿革](../../../Native_NVFP4_HiF4_Linear_Puncture/plans/qwen3_30b_a3b/README.md)：包含格式转换、真实 vLLM、协议审计后的重规划和内部误差研究。读取当前代码和对应运行记录后再判断适用性。
-- [Qwen3-8B QAT 历史方案](../../../Native_NVFP4_HiF4_Linear_Puncture/plans/qwen3_8b_qat/README.md) 与 [原工程说明](../../../Native_NVFP4_HiF4_Linear_Puncture/README_QWEN3_8B_QAT_LEGACY.md)：旧 dense / online rotation 模型线。
+- [Qwen3-8B QAT 历史方案](../../../Native_NVFP4_HiF4_Linear_Puncture/plans/qwen3_8b_qat/README.md) 与 [原工程说明](../../../fp4_convert/README_QWEN3_8B_QAT_LEGACY.md)：旧 dense / online rotation 模型线。
 - [NVFP4 仿真与 backport 方案](../../../NVFP4/plans/)：2026-08-21 的设计、执行计划；相关报告在 [记录入口](../records/README.md)。
 - 实验目录中的 KL 与 LoRA 方案见 [研究导航](../../README.md)。所有方案按路径列于 [自动索引](../../INDEX.md)。
 

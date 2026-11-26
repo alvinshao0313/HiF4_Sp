@@ -9,7 +9,7 @@ import time
 
 import psutil
 
-from Native_NVFP4_HiF4_Linear_Puncture.experiments.ban_trace_calibration.processes import (
+from fp4_convert.experiments.ban_trace_calibration.processes import (
     gpu_snapshot, join_session, require_free,
 )
 from .data import sha256

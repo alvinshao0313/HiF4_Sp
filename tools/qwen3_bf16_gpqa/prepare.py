@@ -110,8 +110,8 @@ def prepare(root, sequential_rounds=None):
         "main.py", "3rdparty/lighteval/src/lighteval/models/vllm/vllm_model.py",
         "3rdparty/lighteval/src/lighteval/tasks/prompt_manager.py", "3rdparty/lighteval/src/lighteval/pipeline.py",
         "3rdparty/vllm/vllm/model_executor/models/qwen3_moe.py",
-        "Native_NVFP4_HiF4_Linear_Puncture/experiments/nvfp4_gpqa/task.py",
-        "Native_NVFP4_HiF4_Linear_Puncture/experiments/qwen3_mxfp4/review_answers.py")]
+        "fp4_convert/experiments/nvfp4_gpqa/task.py",
+        "fp4_convert/experiments/qwen3_mxfp4/review_answers.py")]
     hashes = {str(path.relative_to(repo)): sha256(path) for path in paths}
     for path in paths:
         target = root / "source" / path.relative_to(repo)

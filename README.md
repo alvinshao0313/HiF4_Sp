@@ -1,199 +1,67 @@
-# HiF4_Sp
+# HiF4_Sp：NVFP4 格式转换与 GPU 验证
 
-本仓库研究 HiF4 / NVFP4 低比特量化、格式转换与评测：
+本仓库用于把已有 **NVFP4 模型分别转换为 HiF4 和 MXFP4**，实现转换方法、GPU 推理适配、数值验证和下游评测，并保留论文结论所需的实验来源。
 
-- 用本仓库自带的 vLLM + lighteval 跑评测。
-- 用 HiFloat4 对 Qwen3.5 做 RTN / GPTQ fake-quant，并保存 Hugging Face 格式模型。
-- 用 [Native NVFP4 → HiF4 工程](Native_NVFP4_HiF4_Linear_Puncture/README.md) 研究 Qwen3-30B-A3B 的对角变换、不等价变换与优化目标。
+两条转换路线分别报告转换范围、精度和成本。GPU 上的 fake quant / QDQ 与原生低比特 GEMM 是不同执行路径，具体能力以实现和实测记录为准。
 
-当前只维护一个 conda 环境：`hif4`。不再需要单独的 `qhif4` / `qwen35` 环境，也没有单独的旧安装脚本入口。
+## 从哪里开始
 
-文档统一从 [docs/README.md](docs/README.md) 查阅；研究前检索 [经验库](docs/experience/README.md)，完整清单见 [文档索引](docs/INDEX.md)。协作和评测约束以 [AGENTS.md](AGENTS.md) 为准。
+| 需要做的事 | 入口 |
+| --- | --- |
+| 查找 HiF4 / MXFP4 方法与实验 | [转换实验导航](fp4_convert/experiments/README.md) |
+| 了解目录职责、本地与远程收录边界 | [目录与文件归属](docs/guides/repository_layout.md) |
+| 安装 GPU 环境 | [安装指南](docs/guides/install.md)，统一使用 `hif4` |
+| 使用评测 CLI 或已有 RTN / GPTQ | [GPU 命令参考](docs/guides/gpu_commands.md) |
+| 查阅实验协议、证据和历史 | [文档入口](docs/README.md) · [经验库](docs/experience/README.md) |
+| 修改代码或执行实验 | [工作约定](AGENTS.md) |
 
-## 关键原则
-
-- vLLM 适配代码已经放在 `3rdparty/vllm` 内置源码目录里。用户 clone 后不需要再手工改 vLLM。
-- lighteval 适配代码已经放在 `3rdparty/lighteval` 内置源码目录里。根目录 `main.py` 会优先导入这份本地源码。
-- 安装脚本会源码编译本仓库的 vLLM，并编译 HiFloat4 CUDA 扩展。编译完成后即可运行评测或量化。
-- 大模型权重、评测结果、日志和编译产物不提交到 git。
-
-## 环境版本
-
-| 组件 | 版本 / 来源 |
-|------|-------------|
-| Python | 3.11 |
-| conda env | `hif4` |
-| torch | `2.10.0` |
-| torchvision / torchaudio | `0.25.0` / `2.10.0` |
-| CUDA toolkit | `12.8`，优先安装在 `hif4` 环境内 |
-| transformers | `5.6.2` |
-| vLLM | `3rdparty/vllm` 内置源码目录，editable source build |
-| lighteval | `3rdparty/lighteval` 内置源码目录，editable install |
-| runtime deps | `accelerate` / `datasets` / `safetensors` / `tqdm` / `inspect-ai` 等 |
-
-机器必须有可用 NVIDIA driver。conda 里的 CUDA toolkit 只解决编译期 `nvcc` / headers，不能替代系统驱动。
-
-## 安装
-
-完整步骤、验证和排错见 [安装指南](docs/guides/install.md)。最短路径：
-
-```bash
-git clone <this-repo-url>
-cd HiF4_Sp
-
-conda create -n hif4 python=3.11 -y
-conda activate hif4
-
-bash install.sh
-```
-
-`install.sh` 会做这些事：
-
-1. 确认当前环境是 `hif4`。
-2. 检查 `3rdparty/vllm` 和 `3rdparty/lighteval` 内置源码目录。
-3. 安装 conda CUDA toolkit 12.8。
-4. 安装 torch / transformers / vLLM build 依赖。
-5. 用 `--no-build-isolation` 源码编译安装 `3rdparty/vllm`。
-6. editable 安装 `3rdparty/lighteval`，不安装 `[vllm]` extras，避免覆盖本地 vLLM。
-7. 编译 `HiFloat4/hif4_gpu` CUDA 扩展。
-8. 安装量化和评测运行依赖，并导入检查 vLLM、HiFloat4、lighteval、Qwen3.5 适配。
-
-安装脚本最后会自动执行导入检查。手动复查可以运行：
-
-```bash
-python -c "import torch, vllm, vllm._C; import HiFloat4.main as h; from vllm.model_executor.models.qwen3_5 import Qwen3_5ForCausalLM; print(torch.__version__, vllm.__version__, Qwen3_5ForCausalLM.__name__, 'ok')"
-```
-
-## 目录
+## 当前代码布局
 
 ```text
-.
-├── 3rdparty/
-│   ├── vllm/        # 已包含本项目需要的 Qwen3.5 / HiF4 适配
-│   └── lighteval/   # 已包含本项目需要的评测适配
-├── HiFloat4/
-│   ├── main.py
-│   ├── quantize_qwen3_5_27b.sh
-│   ├── hif4_gpu/
-│   └── hif4gptq/
-├── tasks/           # 自定义 lighteval 任务
-├── main.py          # vLLM + lighteval 评测入口
-└── install.sh
+HiF4_Sp/
+├── fp4_convert/                      # NVFP4→HiF4 / MXFP4 的维护主包
+│   ├── src/                          # 格式、源 checkpoint、旋转及共享工具
+│   ├── experiments/                  # 转换、重构、GPU runtime 与实验入口
+│   ├── tests/                        # 数值语义与功能回归
+│   └── configs/                      # 可复现配置
+├── Native_NVFP4_HiF4_Linear_Puncture/  # 历史路径保留区
+│   ├── plans/                        # 论文引用的协议；继续收录 Git
+│   ├── results/                      # 本地原始结果、checkpoint、缓存
+│   └── ...                           # 本地冻结源码，供旧实验恢复；不再分发
+├── NVFP4/                            # 源格式解码、QDQ、GPU emulation 验证
+├── HiFloat4/                         # HiF4 CUDA、量化器及 GPTQ 共享实现
+├── 3rdparty/{vllm,lighteval}/          # 含本项目适配的第三方源码
+├── tasks/                            # 下游任务与评分定义
+├── tools/                            # 文档工具、模型适配及独立评测工具
+├── docs/                             # 指南、经验、实验与维护记录
+├── archive/{legacy,reference}/       # 历史实验与非 GPU 主线参考
+├── scripts/eval/                     # 按用途命名的旧手动评测配置
+├── main.py                           # 通用 vLLM + lighteval 评测入口
+├── install.sh                        # 安装入口
+├── results/                          # 本地通用评测及工具产物
+└── LaTeX/                            # 独立论文工作区，本次整理不改动
 ```
 
-## 评测
+后续开发、导入及 `python -m` 使用 `fp4_convert`。旧源码留在本机原路径，供已挂起的两组实验按原版本恢复；历史结果与论文引用的计划保持原位。迁移不改变算法、CLI 参数、校准数据或默认产物路径，详见[目录说明](docs/guides/repository_layout.md)。
 
-最小冒烟测试：
+## 运行与复现
+
+在已安装环境中：
 
 ```bash
+source /home/shaoyuantian/anaconda3/etc/profile.d/conda.sh
 conda activate hif4
-
-CUDA_VISIBLE_DEVICES=0 python main.py \
-  --datasets gsm8k \
-  --model_path Qwen/Qwen3-30B-A3B-Instruct-2507 \
-  --max_samples 2
 ```
 
-Qwen3.5 HiFloat4 模型评测示例：
+按实验 README 选择转换、验证或评测入口。正式实验记录模型和数据版本、转换范围、采样与评分协议、代码哈希、配置、日志及原始指标。结果可复用与否依赖这些条件，不由目录名决定。
 
-```bash
-conda activate hif4
+`3rdparty/vllm` 和 `3rdparty/lighteval` 是当前运行依赖，包含项目适配，不能直接换成未核验的上游安装。原 `NVFP4/llm-compressor` 的本地示例已归入 `archive/reference/llm_compressor_examples/`，无效子模块登记已退出跟踪；它不属于运行依赖。
 
-CUDA_VISIBLE_DEVICES=0,1,2,3 python main.py \
-  --model_path Qmodel/Qwen3.5-27B-HiF4-RTN \
-  --datasets aime25,mmlu_pro,lcb:codegeneration_v6 \
-  --tensor_parallel_size 4 \
-  --max_model_len 32768 \
-  --max_new_tokens 32768 \
-  --temperature 0.7 \
-  --top_p 0.8 \
-  --top_k 20 \
-  --gpu_memory_utilization 0.9
-```
+## Git 收录范围
 
-常用参数：
+- 应收录：源码、CUDA/Triton 算子、测试、配置、实验方案、文档、第三方适配及许可证。
+- 本地保留：模型权重、原始数据、checkpoint、评测缓存、日志、构建产物和客户端状态；它们不因被 Git 忽略就变得可删除。
+- `LaTeX/` 按现有约定留在本地，内容和路径不变。
+- `.gitignore` 按产物目录分类；不能按 `data/`、`models/`、JSON 或 YAML 名称一概屏蔽源码和配置。
 
-| 参数 | 说明 |
-|------|------|
-| `--datasets` | lighteval 任务名，逗号分隔 |
-| `--custom_tasks` | 自定义任务文件，默认 `tasks/custom_tasks.py` |
-| `--tensor_parallel_size` | vLLM TP。默认等于当前可见 GPU 数 |
-| `--pipeline_parallel_size` | vLLM PP |
-| `--data_parallel_size` | vLLM DP |
-| `--max_model_len` / `--max_model_length` | vLLM 最大上下文长度 |
-| `--max_new_tokens` | 最大生成长度 |
-| `--max_samples` | 每个任务最多评测样本数，冒烟测试建议设小 |
-| `--batch_size` | 传给 vLLM 的 `max_num_seqs`，不设则使用 lighteval / vLLM 默认值 |
-| `--gpu_memory_utilization` | vLLM 显存利用率 |
-| `--enforce_eager` | 关闭 CUDAGraph / torch.compile，排错用 |
-| `--cpu_offload_gb` | 每卡向 CPU 卸载多少 GiB 权重 |
-| `--num_experts_per_tok` | 覆盖本地 MoE 模型 `config.json` 里的每 token 激活专家数 |
-| `--load_multilingual_tasks` | 加载 lighteval 多语言任务注册表 |
-| `--fake_act_quant` | dense linear 输入激活 fake quant，可选 `none` / `hif4` / `hif4-1` / `nvfp4`。`nvfp4` 要求本地模型目录有 `nvfp4_activation_scales.safetensors` |
-| `--kv_quant_format` | KV cache fake quant，可选 `none` / `nvfp4` / `hif4` / `hif4-1` |
-| `--kv_quant_chunk_size` | NVFP4 KV fake quant 的 non-sink token chunk 大小，默认 `64`；HiF4 KV 会忽略 |
-| `--kv_quant_sink_size` | 前多少个 token 的 KV cache 保持原精度，默认 `4` |
-| `--kv_quant_recent_size` | HiF4 / HiF4-1 KV cache 最后多少个 token 保持原精度，默认 `0`；启用后自动关闭 prefix caching |
-| `--kv_quant_target` | KV fake quant 目标，可选 `kv` / `k` / `v` |
-| `--kv_quant_query` | RoPE 后、QK 点积前的 Q fake quant，可选 `none` / `enabled` / `mxfp8`；`enabled` 跟随 KV 格式，`mxfp8` 使用 OCP MXFP8 E4M3（每 32 个 head_dim 元素共享 E8M0 scale） |
-
-`--kv_quant_query mxfp8` 要求 `head_dim` 能被 32 整除。Q 量化不能在 `--kv_quant_format none` 下单独启用。
-
-注意任务名：
-
-- MMLU-Pro 是 `mmlu_pro`，不是 `mmlu-pro`。
-- LiveCodeBench code generation 是 `lcb:codegeneration_v6`，不是 `livecodebench`。
-
-## 量化
-
-默认量化 `Qwen/Qwen3.5-27B`，保存到 `Qmodel/`：
-
-```bash
-conda activate hif4
-bash HiFloat4/quantize_qwen3_5_27b.sh
-```
-
-显式指定本地模型和输出目录：
-
-```bash
-MODEL=/path/to/Qwen3.5-27B \
-OUTPUT=/data/Qwen3.5-27B-HiF4-RTN \
-bash HiFloat4/quantize_qwen3_5_27b.sh
-```
-
-使用 GPTQ 路径：
-
-```bash
-GPTQ=true \
-GPTQ_CAL_DATASET=c4 \
-GPTQ_CAL_NSAMPLES=512 \
-GPTQ_CAL_SEQLEN=512 \
-OUTPUT=/data/Qwen3.5-27B-HiF4-GPTQ \
-bash HiFloat4/quantize_qwen3_5_27b.sh
-```
-
-切换 HiF4 权重量化格式：
-
-```bash
-HIF4_WEIGHT_FORMAT=hif4-1 \
-OUTPUT=/data/Qwen3.5-27B-HiF4-1-RTN \
-bash HiFloat4/quantize_qwen3_5_27b.sh
-```
-
-保存成功后，输出目录应包含 `config.json`、`generation_config.json`、分片权重文件和 index 文件。中断或磁盘写满留下的目录不能当作可用 checkpoint。
-
-## 自定义任务
-
-| 任务名 | 文件 | 备注 |
-|--------|------|------|
-| `aime24_avg5`, `aime25_avg5` | `tasks/aime.py` | avg@5 |
-| `triviaqa_em` | `tasks/triviaqa.py` | TriviaQA EM 修正 |
-| `simpleqa_v2` | `tasks/simpleqa.py` | SimpleQA 新列名适配 |
-| `hellaswag_fixed` | `tasks/hellaswag.py` | HellaSwag 修复版 |
-| `ifeval_pass_at_n`, `ifbench_test_pass_at_n` | `tasks/if_pass_at_n.py` | pass@n |
-
-## 提交约定
-
-- 提交主仓库代码、`HiFloat4/`、`tasks/`、安装脚本和文档。
-- 提交 `3rdparty/vllm` / `3rdparty/lighteval` 内置源码目录里的源码改动。
-- 不提交 `Qmodel/`、`results/`、日志、offload 目录、编译产物、缓存目录。
+本地结果链接需要对应产物，单独 clone 代码不能取得全部原始证据。本次整理已按授权调整暂存与跟踪清单；尚未提交或推送，因此远程分支尚未更新。

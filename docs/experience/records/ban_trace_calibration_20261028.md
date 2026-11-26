@@ -2,7 +2,7 @@
 
 用户批准复用已有原生生成轨迹、数学代码各半、匹配专家预算的三组对照，并明确要求
 MMLU-Pro 使用完整12032题。实现位于
-[独立实验入口](../../../Native_NVFP4_HiF4_Linear_Puncture/experiments/ban_trace_calibration/README.md)，
+[独立实验入口](../../../fp4_convert/experiments/ban_trace_calibration/README.md)，
 保留旧 Ban 算法、默认300题入口、模型权重及全部旧结果。日期按北京时间。
 
 ## 固定实验

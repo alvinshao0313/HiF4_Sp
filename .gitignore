@@ -22,13 +22,30 @@ dist/
 venv/
 env/
 
-# Project outputs
+# Project outputs (keep code, configs and experiment plans visible to Git)
 results/
 Qmodel/
 .moe_override/
 offload/
 hif4gptq_logs/
 HiFloat4/hif4gptq_logs/
+/data/
+/models/
+/report/
+/NVFP4/reports/
+# Local upstream examples, not an installed runtime dependency.
+/archive/reference/llm_compressor_examples/
+# Frozen paper evidence and its local links to original plans/results.
+/archive/native_nvfp4_evidence/
+/archive/plans
+/archive/results
+/Native_NVFP4_HiF4_Linear_Puncture/data/
+/Native_NVFP4_HiF4_Linear_Puncture/models/
+
+# Historical local results and evidence entry; maintained code lives in fp4_convert/.
+# Paper-linked plans remain tracked at their original paths.
+/Native_NVFP4_HiF4_Linear_Puncture/*
+!/Native_NVFP4_HiF4_Linear_Puncture/plans/
 
 # Large model / dataset artifacts
 *.safetensors
@@ -44,7 +61,6 @@ HiFloat4/hif4gptq_logs/
 *.mkv
 *.mov
 *.avi
-*.csv
 HiFloat4/datasets/
 
 # Logs
@@ -56,12 +72,12 @@ wandb/
 .vscode/
 .idea/
 
-# Local Codex / agent state
-.codex/
-AGENTS.md
+# Local editor / agent state; AGENTS.md is shared project documentation.
+.codex
+.agents/
+.ai-bridge/
+.cursor/
 **/outputs/
-**/data/
-**/models/
 **/results/
 **/logs/
 **/checkpoints/
@@ -69,18 +85,6 @@ AGENTS.md
 **/temp/
 **/backup/
 **/.result/
-**/plans/
-**/plan/
-*.html
-*.json
-*.yaml
-*.jsonl
-Inference_Paradigm_Conversion/assets
 
-# Vendored MiniMax source and its regression test are code, not model weights.
-!3rdparty/vllm/vllm/model_executor/models/
-3rdparty/vllm/vllm/model_executor/models/*
-!3rdparty/vllm/vllm/model_executor/models/minimax_m3/
-!3rdparty/vllm/tests/models/
-3rdparty/vllm/tests/models/*
-!3rdparty/vllm/tests/models/test_minimax_m3_backport.py
+# Paper workspace: preserve locally, outside this code repository's publication.
+/LaTeX/

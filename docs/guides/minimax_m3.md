@@ -165,9 +165,9 @@ CPU 检查及既有相关检查共 13 项通过，包含真实参数转换和复
 ```bash
 CUDA_VISIBLE_DEVICES='' python -m pytest -q \
   3rdparty/vllm/tests/models/test_minimax_m3_backport.py \
-  Native_NVFP4_HiF4_Linear_Puncture/experiments/ban/tests \
-  Native_NVFP4_HiF4_Linear_Puncture/tests/test_checkpoint.py \
-  Native_NVFP4_HiF4_Linear_Puncture/tests/e2e_diag_reconstruction/test_moe_vo_geometry.py \
+  fp4_convert/experiments/ban/tests \
+  fp4_convert/tests/test_checkpoint.py \
+  fp4_convert/tests/e2e_diag_reconstruction/test_moe_vo_geometry.py \
   NVFP4/tests/test_vllm_emulation_cli_plumbing.py
 ```
 

@@ -133,6 +133,8 @@ y = torch.nn.functional.linear(x_sim, w_sim)
 
 NPU 示例：
 
+NPU 参考实现保留在实体目录 `HiFloat4/hifx4_npu/`，分类说明见[参考目录](../archive/reference/README.md)。此前目录符号链接导致 Git 逐文件暂存报错，已恢复原结构。当前 GPU 转换不依赖该后端；本机整理未执行 NPU 验证。
+
 ```python
 import torch
 from quant_cy_npu import QType, quant_dequant_float

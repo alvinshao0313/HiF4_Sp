@@ -8,7 +8,9 @@
 
 | 主题 | 正文 |
 | --- | --- |
-| 评测、量化命令与项目总览 | [仓库 README](../README.md) |
+| NVFP4→HiF4 / MXFP4 项目总览 | [仓库 README](../README.md) · [转换实验分类](../fp4_convert/experiments/README.md) |
+| 目录命名与本地/远程文件归属 | [主包迁移、文件分类与旧实验恢复](guides/repository_layout.md) |
+| GPU 评测与通用量化命令 | [CLI 和既有 RTN / GPTQ 参考](guides/gpu_commands.md) |
 | Qwen3-30B-A3B 官方 BF16 GPQA | [TP8、顺序三轮均值与官方权重核验](experience/records/qwen3_bf16_gpqa_20261111.md) |
 | 环境安装与排错入口 | [安装指南](guides/install.md) |
 | MiniMax-M3.1-Flash 文本推理回移 | [独立入口、已验证范围与待验项](guides/minimax_m3.md) · [NVFP4→MXFP4 权重与激活对比](guides/minimax_mxfp4.md) |
@@ -16,39 +18,45 @@
 | HiFloat4 RTN / GPTQ | [模块 README](../HiFloat4/README.md) |
 | 量化阈值标定 | [模块 README](../HiFloat4/hif4_scale_threshold_optimization/README.md) |
 
-## Native NVFP4 → HiF4 研究
+## Native NVFP4 → HiF4 / MXFP4 研究
 
-主线模型为 `nvidia/Qwen3-30B-A3B-NVFP4`，详见 [Native 工程入口](../Native_NVFP4_HiF4_Linear_Puncture/README.md)。旧 Qwen3-8B QAT 的在线 rotation 与当前 MoE checkpoint 语义不同，结果不能直接混用。
+主线模型为 `nvidia/Qwen3-30B-A3B-NVFP4`，详见 [Native 工程入口](../fp4_convert/README.md)。旧 Qwen3-8B QAT 的在线 rotation 与当前 MoE checkpoint 语义不同，结果不能直接混用。
 
 | 研究主题 | 入口 |
 | --- | --- |
+| 两小模型单项方法 | [融合 BRQ、QA 对齐、完整序列修复及运行状态](experience/records/fp4_single_methods_20261120.md) |
+| ACL 中文论文工作稿 | [已确认的六节大纲](guides/fp4_paper_outline.md) · [实验总表、统一设置与三机分工](../Native_NVFP4_HiF4_Linear_Puncture/plans/2026-11-19-fp4-paper-experiments-cn.md) · [逐配置参数、缺失轮次与已有分数](../Native_NVFP4_HiF4_Linear_Puncture/results/paper_experiment_inventory/20261120/EXPERIMENT_TABLE.md) · [三台机器逐项任务](../Native_NVFP4_HiF4_Linear_Puncture/results/paper_experiment_inventory/20261120/SERVER_ASSIGNMENT.md) · [论文工作稿与证据入口](../LaTeX/README.md) |
+| 格式转换章节补充实验（无 AIME） | [R64＋scale / GPTQ 并列强基线、机制与消融、短程成本及执行顺序](../Native_NVFP4_HiF4_Linear_Puncture/plans/qwen3_30b_a3b/2026-11-16-thesis-format-conversion-supplement-plan-cn.md) · [五次均值、独立实现与运行入口](../fp4_convert/experiments/thesis_format_conversion_supplement/README.md) |
 | 原生 NVFP4 GPQA Diamond 基线 | [Qwen 推荐参数、ModelScope 数据与执行记录](experience/records/nvfp4_gpqa_20261109.md) |
-| Qwen3 路由专家 MXFP4／旋转／UOS 对照 | [原转换入口](../Native_NVFP4_HiF4_Linear_Puncture/experiments/qwen3_mxfp4/README.md) · [UOS c7.25](../Native_NVFP4_HiF4_Linear_Puncture/experiments/qwen3_mxfp4_uos/README.md) · [G256／G512 二级 scale 计划](../Native_NVFP4_HiF4_Linear_Puncture/experiments/qwen3_mxfp4_dualscale/PLAN.md) · [CPU／GPU 证据与 GPQA×10 状态](experience/records/qwen3_mxfp4_20261109.md) |
-| H32 与 R16 扩展 R32 下游对照 | [LCB／MMLU-Pro 每题10次、ARC-E/C 五轮评测入口](../Native_NVFP4_HiF4_Linear_Puncture/experiments/qwen3_mxfp4_rotation_eval/README.md) |
-| 八候选 GPQA 的 AISBench prompt 重测 | [初始TP4协议、BF16 KV与取消记录](../Native_NVFP4_HiF4_Linear_Puncture/experiments/qwen3_aisbench_gpqa/README.md) · [G512获授权改TP2的验证与接续](../Native_NVFP4_HiF4_Linear_Puncture/experiments/qwen3_mxfp4_dualscale_tp2/README.md) |
-| 可学习对角变换、逐层重构 | [e2e_diag_reconstruction](../Native_NVFP4_HiF4_Linear_Puncture/experiments/e2e_diag_reconstruction/README.md) |
-| 不等价变换、矩阵共享与 router loss | [non_equivalent_reconstruction](../Native_NVFP4_HiF4_Linear_Puncture/experiments/non_equivalent_reconstruction/README.md) |
-| norm / DIAG / 对称旋转与 KL 消融 | [模块消融方案与运行记录](../Native_NVFP4_HiF4_Linear_Puncture/experiments/module_design_ablation/PLAN.md) |
-| matrix_norm 数据高效与短程转换 | [精度/耗时目标与独立实验方案](../Native_NVFP4_HiF4_Linear_Puncture/experiments/matrix_norm_efficiency/PLAN.md) · [五任务结果与成本](experience/records/matrix_norm_efficiency_20261104.md) |
-| H-only 矩阵解析更新 | [闭式代理与CPU单Linear验证](../Native_NVFP4_HiF4_Linear_Puncture/experiments/matrix_only_analytic/README.md) |
-| matrix_norm 上的 Ban 动态专家剪枝 | [开关、校准与推理入口](../Native_NVFP4_HiF4_Linear_Puncture/experiments/ban/README.md) |
-| 自生成轨迹重新校准 Ban | [独立入口、专家预算与全量 MMLU-Pro 对照](../Native_NVFP4_HiF4_Linear_Puncture/experiments/ban_trace_calibration/README.md) |
-| 校准轨迹数据对比与追加 Router 对齐 | [实验入口与数据隔离状态](../Native_NVFP4_HiF4_Linear_Puncture/experiments/reasoning_trace_calibration/README.md) |
-| B 模型 BF16 Router、独立原生教师前缀 | [独立实验入口](../Native_NVFP4_HiF4_Linear_Puncture/experiments/reasoning_trace_router_bf16/README.md) |
-| B 末层与输出端词表 Top-mass KL | [独立实验入口](../Native_NVFP4_HiF4_Linear_Puncture/experiments/reasoning_trace_last_head/README.md) |
-| B 末层与输出端完整 KL / 轨迹硬 CE | [独立实验入口与开发集选优](../Native_NVFP4_HiF4_Linear_Puncture/experiments/reasoning_trace_full_kl_ce/README.md) · [TP2 并行评测接续](../Native_NVFP4_HiF4_Linear_Puncture/experiments/reasoning_trace_full_kl_ce_parallel/README.md) |
-| 优化目标、KL 方向复用 | [kl_direction_reuse](../Native_NVFP4_HiF4_Linear_Puncture/experiments/kl_direction_reuse/README.md) · [方案 v2](../Native_NVFP4_HiF4_Linear_Puncture/experiments/kl_direction_reuse/PLAN_v2.md) |
-| 渐进式累计隐状态误差抵消 | [progressive_error_cancellation](../Native_NVFP4_HiF4_Linear_Puncture/experiments/progressive_error_cancellation/README.md) |
+| Qwen3 路由专家 MXFP4／旋转／UOS 对照 | [原转换入口](../fp4_convert/experiments/qwen3_mxfp4/README.md) · [UOS c7.25](../fp4_convert/experiments/qwen3_mxfp4_uos/README.md) · [G256／G512 二级 scale 计划](../fp4_convert/experiments/qwen3_mxfp4_dualscale/PLAN.md) · [CPU／GPU 证据与 GPQA×10 状态](experience/records/qwen3_mxfp4_20261109.md) |
+| H32 与 R16 扩展 R32 下游对照 | [LCB／MMLU-Pro 每题10次、ARC-E/C 五轮评测入口](../fp4_convert/experiments/qwen3_mxfp4_rotation_eval/README.md) |
+| 八候选 GPQA 的 AISBench prompt 重测 | [初始TP4协议、BF16 KV与取消记录](../fp4_convert/experiments/qwen3_aisbench_gpqa/README.md) · [G512获授权改TP2的验证与接续](../fp4_convert/experiments/qwen3_mxfp4_dualscale_tp2/README.md) · [G512与UOS双TP2、KV容量对照](../fp4_convert/experiments/qwen3_gpqa_tp2_budget/README.md) |
+| UOS／R16扩展R32／G512组合 | [实现、验证与四组GPQA入口](../fp4_convert/experiments/qwen3_mxfp4_combinations/README.md)；[GPQA运行记录](../Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_mxfp4/combinations_tp2_20261113T154617Z/RUN.md)；[LCB／MMLU-Pro五次平均、四路TP2](../fp4_convert/experiments/qwen3_mxfp4_combination_eval/README.md) |
+| 原生NVFP4／直接MXFP4的AISBench prompt下游基线 | [LCB／全量MMLU-Pro五次平均、GPU2–7三组TP2](../fp4_convert/experiments/qwen3_mxfp4_baseline_eval/README.md) |
+| 可学习对角变换、逐层重构 | [e2e_diag_reconstruction](../fp4_convert/experiments/e2e_diag_reconstruction/README.md) |
+| 不等价变换、矩阵共享与 router loss | [non_equivalent_reconstruction](../fp4_convert/experiments/non_equivalent_reconstruction/README.md) |
+| norm / DIAG / 对称旋转与 KL 消融 | [模块消融方案与运行记录](../fp4_convert/experiments/module_design_ablation/PLAN.md) |
+| matrix_norm 数据高效与短程转换 | [精度/耗时目标与独立实验方案](../fp4_convert/experiments/matrix_norm_efficiency/PLAN.md) · [五任务结果与成本](experience/records/matrix_norm_efficiency_20261104.md) |
+| H-only 矩阵解析更新 | [闭式代理与CPU单Linear验证](../fp4_convert/experiments/matrix_only_analytic/README.md) |
+| matrix_norm 上的 Ban 动态专家剪枝 | [开关、校准与推理入口](../fp4_convert/experiments/ban/README.md) |
+| 自生成轨迹重新校准 Ban | [独立入口、专家预算与全量 MMLU-Pro 对照](../fp4_convert/experiments/ban_trace_calibration/README.md) |
+| 校准轨迹数据对比与追加 Router 对齐 | [实验入口与数据隔离状态](../fp4_convert/experiments/reasoning_trace_calibration/README.md) |
+| B 模型 BF16 Router、独立原生教师前缀 | [独立实验入口](../fp4_convert/experiments/reasoning_trace_router_bf16/README.md) |
+| B 末层与输出端词表 Top-mass KL | [独立实验入口](../fp4_convert/experiments/reasoning_trace_last_head/README.md) |
+| B 末层与输出端完整 KL / 轨迹硬 CE | [独立实验入口与开发集选优](../fp4_convert/experiments/reasoning_trace_full_kl_ce/README.md) · [TP2 并行评测接续](../fp4_convert/experiments/reasoning_trace_full_kl_ce_parallel/README.md) |
+| 优化目标、KL 方向复用 | [kl_direction_reuse](../fp4_convert/experiments/kl_direction_reuse/README.md) · [方案 v2](../fp4_convert/experiments/kl_direction_reuse/PLAN_v2.md) |
+| 渐进式累计隐状态误差抵消 | [progressive_error_cancellation](../fp4_convert/experiments/progressive_error_cancellation/README.md) |
 | 内部误差与真实 vLLM 机制分析 | [计划沿革](../Native_NVFP4_HiF4_Linear_Puncture/plans/qwen3_30b_a3b/README.md) · [证据入口](experience/records/README.md) |
-| KL 下游方案、残差 LoRA 方案 | [KL downstream PLAN](../Native_NVFP4_HiF4_Linear_Puncture/experiments/kl_direction_reuse_downstream/PLAN.md) · [residual LoRA PLAN](../Native_NVFP4_HiF4_Linear_Puncture/experiments/residual_lora_compensation/PLAN.md) |
-| NVFP4 → HiF4 五项全量精度恢复 | [目标与实验定义](../Native_NVFP4_HiF4_Linear_Puncture/experiments/downstream_accuracy_recovery/PLAN.md) · [2026-10-01 全量验收报告](../Native_NVFP4_HiF4_Linear_Puncture/results/downstream_accuracy_recovery/paired_full_20260930T131000Z/REPORT.md) |
-| Qwen3-235B-A22B 算法迁移 | [迁移方案与执行状态](../Native_NVFP4_HiF4_Linear_Puncture/experiments/qwen3_235b_transfer/PLAN.md) |
-| Qwen3-235B matrix_norm 与自生成轨迹 | [独立转换、TP8 四任务对照入口](../Native_NVFP4_HiF4_Linear_Puncture/experiments/qwen3_235b_matrix_norm/README.md) |
+| KL 下游方案、残差 LoRA 方案 | [KL downstream PLAN](../fp4_convert/experiments/kl_direction_reuse_downstream/PLAN.md) · [residual LoRA PLAN](../fp4_convert/experiments/residual_lora_compensation/PLAN.md) |
+| NVFP4 → HiF4 五项全量精度恢复 | [目标与实验定义](../fp4_convert/experiments/downstream_accuracy_recovery/PLAN.md) · [2026-10-01 全量验收报告](../Native_NVFP4_HiF4_Linear_Puncture/results/downstream_accuracy_recovery/paired_full_20260930T131000Z/REPORT.md) |
+| Qwen3-235B-A22B 算法迁移 | [迁移方案与执行状态](../fp4_convert/experiments/qwen3_235b_transfer/PLAN.md) |
+| Qwen3-235B matrix_norm 与自生成轨迹 | [独立转换、TP8 四任务对照入口](../fp4_convert/experiments/qwen3_235b_matrix_norm/README.md) |
 
 这些链接用于定位设计和实现，不代表实验已启动、已完成或已获准进入下一阶段。运行状态须用对应配置、日志、指标和进程核实。
 
 ## 经验、证据与历史
 
+- [全仓库实验结果总账（2026-11-20）](experience/records/all_experiment_results_20261120.md)：按测试集与优化方案分表，注明超参、重复次数、可比边界、成本及未完成事项；附逐项 CSV 和运行证据索引。
 - [经验库](experience/README.md)：设计或调整实验前按主题检索，区分实测、解释与假设。
 - [实验与维护记录](experience/records/README.md)：原始报告保留在各自实验目录，具体数值不复制成多份正文。
 - [历史与方案](experience/history/README.md)：安装沿革、旧模型线、已归档源码及计划。
@@ -62,4 +70,4 @@ python tools/docs.py search 'PROMPT_PROTOCOL' --scope records
 python tools/docs.py search 'semantic' --scope history
 ```
 
-默认搜索指南与经验；`records` 包括实验目录中的生成报告，`history` 包括方案和交接旧记录。第三方入口见 [vLLM](../3rdparty/vllm/README.md)、[lighteval](../3rdparty/lighteval/README.md) 和 [llm-compressor 目录](../NVFP4/llm-compressor/)，不纳入本项目正文迁移。
+默认搜索指南与经验；`records` 包括实验目录中的生成报告，`history` 包括方案和交接旧记录。第三方运行依赖见 [vLLM](../3rdparty/vllm/README.md)、[lighteval](../3rdparty/lighteval/README.md)。原 llm-compressor 示例已作为[本地参考](../archive/reference/README.md)归档，不属于运行依赖；具体处理见[盘点记录](experience/records/maintenance/2026-11-18-repository-organization.md)。

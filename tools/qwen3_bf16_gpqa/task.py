@@ -6,10 +6,10 @@ from lighteval.metrics.utils.metric_utils import SampleLevelMetric
 from lighteval.tasks.lighteval_task import LightevalTaskConfig
 from lighteval.tasks.requests import SamplingMethod
 
-from Native_NVFP4_HiF4_Linear_Puncture.experiments.nvfp4_gpqa.task import (
+from fp4_convert.experiments.nvfp4_gpqa.task import (
     DATASET_PATH, DATASET_REVISION, extract_final_answer, gpqa_prompt,
 )
-from Native_NVFP4_HiF4_Linear_Puncture.experiments.qwen3_mxfp4.review_answers import parse_final
+from fp4_convert.experiments.qwen3_mxfp4.review_answers import parse_final
 
 
 class GPQAAccuracy(AvgAtN):

@@ -1,5 +1,7 @@
 # 评测协议与真实执行路径
 
+2026-11-20 核对本机lighteval时发现，LCB v6默认指标名为`codegen_pass@1:16`，但其实际Doc的`num_samples=1`。指标名不能单独证明每题采样次数；应同时检查任务构造、后端采样参数与真实输出条数。该版本的Math500、GPQA、GSM8K、LCB、MMLU-Pro默认任务均已逐题核对为单次生成，具体数据摘要与短测证据见[两小模型记录](../records/fp4_single_methods_20261120.md)。
+
 证据状态：包含历史审计、30B 同协议全量评测、235B 固定数据版本诊断，以及截至 2026-10-21 的 B 模型追加对齐实验，具体来源与适用范围见各段。局部经验不自动适用于其他模型或执行条件。
 
 ## 输入不一致时，分数差不能单独归因于格式转换
@@ -22,7 +24,7 @@
 
 ## 复用权重时检查预测缓存的实际位置
 
-2026-09-24 接续[残差 LoRA 下游计划](../../../Native_NVFP4_HiF4_Linear_Puncture/experiments/residual_lora_compensation/PLAN.md)时检查到，当前 vendored lighteval 的 [SampleCache](../../../3rdparty/lighteval/src/lighteval/utils/cache_management.py) 用 `cache_dir / model_name / model_hash` 组成路径；当 `model_name` 是绝对路径时，缓存实际落在模型目录中。仅更换结果目录不足以隔离历史生成结果，短测也可能为之后的正式运行留下预测缓存。
+2026-09-24 接续[残差 LoRA 下游计划](../../../fp4_convert/experiments/residual_lora_compensation/PLAN.md)时检查到，当前 vendored lighteval 的 [SampleCache](../../../3rdparty/lighteval/src/lighteval/utils/cache_management.py) 用 `cache_dir / model_name / model_hash` 组成路径；当 `model_name` 是绝对路径时，缓存实际落在模型目录中。仅更换结果目录不足以隔离历史生成结果，短测也可能为之后的正式运行留下预测缓存。
 
 该实验为正式评测创建独立的模型目录视图，只链接权重和配置文件，不链接缓存子目录；旧 artifact 和已有缓存保留。此做法隔离生成缓存，不改变权重、prompt 或评分协议。适用于当前缓存实现和本地绝对模型路径，其他后端应先检查自己的缓存键与读取规则。
 
@@ -57,6 +59,13 @@ top-k 截断，只有 `0 < top_k < vocab_size` 才启用该过滤。因此在独
 正式引擎和批量形状，用少量解码步覆盖计算、通信及保存；评分正常/异常分支复用有依据的
 专项检查。截断回答的分数不作为精度证据，完整正式评测仍保持全部题目、采样次数和输出上限。
 
+2026-11-13 的 [G512/UOS TP2容量对照](../../../fp4_convert/experiments/qwen3_gpqa_tp2_budget/README.md)
+进一步区分了短测与吞吐证据：64-token短测能验证正式批量执行，却不足以判断长回答
+是否受KV容量限制。固定真实长续写前缀、输出工作量并清空轮间prefix cache后，G512的
+32/56 GiB对照显示扩大容量减少了请求抢占并提高这组输入的吞吐；具体计时与峰值见运行记录。
+这不证明任意任务或其他量化候选有相同加速。已设置 `kv_cache_memory_bytes` 时，仅提高
+`gpu_memory_utilization` 不会扩大KV；调整须验证实际容量、峰值和正式执行，并保留BF16类型。
+
 ## 推理主进程退出不等于 worker 和显存已释放
 
 2026-10-29 的[Ban校准接续](../records/ban_trace_calibration_20261028.md)核查到原控制器
@@ -73,7 +82,7 @@ top-k 截断，只有 `0 < top_k < vocab_size` 才启用该过滤。因此在独
 
 2026-10-08 的 235B 评测准备发现，当前 `datasets` 在 `HF_HUB_OFFLINE=1/HF_DATASETS_OFFLINE=1` 时选择最近修改的本地缓存，MMLU-Pro task 虽指定 `3373e0...`，实际得到 `b189ec...`。两个缓存均有 12,032 题，文档 ID 和最长 prompt 相同，但有 659 条记录变化；仅检查题数或 native/HiF4 两者相同不足以发现数据版本偏移。用相同 formatter/tokenizer 分别读取两个真实 Arrow，精确复现了原协议与离线准备的不同 prompt/token 哈希；恢复非离线加载后，原指定版本和原预检哈希恢复一致。此结论限于当前库与缓存条件，不宣称所有离线加载都会忽略 revision。固定评测应核对实际数据内容证据；恢复原加载条件即可时，不更改任务版本或默许缓存回退。见[诊断与修复记录](../../../Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_235b_transfer/parallel_20261003T144300Z/REPORT.md)及其原始诊断。
 
-2026-10-14 的 30B 模块消融进一步确认，即使进程未设置这些离线变量，镜像连接被拒绝也会触发同类缓存回退。5 个候选的单组 native/candidate 审计彼此一致，但跨时间与本轮原生基准相比，实际有 645 个 prompt、174 个 gold 不同，并集为 659 题；配置记录仍显示指定 revision。应把所有候选绑定到同一已核验的实际数据内容，而不能为每个候选重新构造一个可能随缓存变化的“native 参考”。本次隔离读取指定版本的真实 Arrow 并核对文件摘要、全部 12,032 题的 prompt/token/gold，原训练及推理/评分语义保持原位。重新导出的权重分片及在线旋转矩阵与原导出一致，真实 TP2 单题短测验证新的父/子进程数据入口；完整恢复仍须逐组核对实际题目和指标，进度以运行记录为准。见[跨版本诊断](../../../Native_NVFP4_HiF4_Linear_Puncture/results/module_design_ablation/formal_20261008T074812Z/mmlu_revision_recovery_20261014/revision_diagnostic.json)、[恢复验证](../../../Native_NVFP4_HiF4_Linear_Puncture/results/module_design_ablation/formal_20261008T074812Z/mmlu_revision_recovery_20261014/qualification.json)及[模块消融记录](../../../Native_NVFP4_HiF4_Linear_Puncture/experiments/module_design_ablation/PLAN.md)。
+2026-10-14 的 30B 模块消融进一步确认，即使进程未设置这些离线变量，镜像连接被拒绝也会触发同类缓存回退。5 个候选的单组 native/candidate 审计彼此一致，但跨时间与本轮原生基准相比，实际有 645 个 prompt、174 个 gold 不同，并集为 659 题；配置记录仍显示指定 revision。应把所有候选绑定到同一已核验的实际数据内容，而不能为每个候选重新构造一个可能随缓存变化的“native 参考”。本次隔离读取指定版本的真实 Arrow 并核对文件摘要、全部 12,032 题的 prompt/token/gold，原训练及推理/评分语义保持原位。重新导出的权重分片及在线旋转矩阵与原导出一致，真实 TP2 单题短测验证新的父/子进程数据入口；完整恢复仍须逐组核对实际题目和指标，进度以运行记录为准。见[跨版本诊断](../../../Native_NVFP4_HiF4_Linear_Puncture/results/module_design_ablation/formal_20261008T074812Z/mmlu_revision_recovery_20261014/revision_diagnostic.json)、[恢复验证](../../../Native_NVFP4_HiF4_Linear_Puncture/results/module_design_ablation/formal_20261008T074812Z/mmlu_revision_recovery_20261014/qualification.json)及[模块消融记录](../../../fp4_convert/experiments/module_design_ablation/PLAN.md)。
 
 ## 生成进度不等于已保存的回答
 
@@ -113,6 +122,13 @@ SampleLevelComputation，未走 SamplingMetric 的采样数量分支；实际 Do
 15 个特殊案例在不显示模型和金标的队列中判定后再评分，14 个无最终提交的截断回答
 保留 0。复核结果与原严格 JSON 分数分开保存，并核对各采样序号均值与整体一致。
 
+2026-11-13 AISBench prompt七候选复核确认，跨行匹配`Final Answer: A = ...`会将化学
+变量A误作选项；正文中被否定的备选项也可能制造假冲突。需看完整最终提交及明确的
+撤回/改选，不机械取最后一个字母。截断后仍反复提交同一个答案与交替冲突应分别判定，
+不能仅凭输出达到长度上限统一清零。此轮核对13,860个原始回答并复核42个案例，
+原自动指标另存；每次采样列均覆盖相同198题，报告方差需注明分母9或10及百分点²单位，
+不得称为跨seed方差。证据及统计边界见[复核报告](../../../Native_NVFP4_HiF4_Linear_Puncture/results/qwen3_mxfp4/aisbench_gpqa_20261113T023500Z/answer_review_20261113T144526Z/REPORT.md)。
+
 2026-11-04 的[matrix_norm独立5轮实验](../records/matrix_norm_efficiency_20261104.md)提供了
 开发集选优与正式精度脱钩的实例：三候选开发等权分同为0.734375，按时间选择的random50_e5
 优化阶段3.82小时、相对旧20.04小时约5.25倍速度，但完整五任务平均正向精度损失为2.3047
@@ -136,11 +152,11 @@ AIME配对重采样按30道题保留各题5个回答，不能当作150道独立�
 
 2026-10-20 的 [B 模型 BF16 router 独立前缀实验](../../../Native_NVFP4_HiF4_Linear_Puncture/results/reasoning_trace_router_bf16/run_20261019T031744Z/REPORT.md)补充了“局部对齐不等于下游提升”的直接证据：固定 B 的普通权重和 norm，48 层只训练实际 gate，教师/学生各走自己的前缀；全部层选定验证 KL 不高于各自 epoch 0，完整正式评测的综合观测仍变差，主要来自 AIME。已验证非 router 分片一致及 BF16 参数/梯度/动量契约，因此不能把局部 KL 下降或实现契约通过当作准确率收益。该结果限于本轮配方；精度、教师前缀方式及目标本身的单独因果贡献尚未消融，不能据此概括为 router 对齐普遍无效。
 
-2026-10-21 完成复核的 [B 末层与输出端词表 top-64＋tail KL 实验](../../../Native_NVFP4_HiF4_Linear_Puncture/results/reasoning_trace_last_head/run_20261020T031200Z/comparison.md)将这一边界扩展到最终词表目标：固定原 B 前缀、router 和基础权重，仅联合训练末层矩阵及 norm、final norm 和可融合 head matrix，验证 KL 降低约 12.2%，完整 TP2 评测却出现 MMLU-Pro 上升、AIME avg5 下降的任务折中。本轮四项平均正向损失观测变差，但变化的逐题配对 95% 区间跨 0，不能宣称稳定改善或稳定退化，也不能据此判断词表 KL 普遍无效。7 条歧义回答逐条复核后无二元改判；另核对了 7 条到达输出上限且没有最终提交的回答，均按既定口径保留 0。结果限于本轮 B 数据、候选 LR、验证选优及联合训练配方，未拆分各可学习组件的贡献。配置、源代码摘要、原始回答和复核依据见[实验入口](../../../Native_NVFP4_HiF4_Linear_Puncture/experiments/reasoning_trace_last_head/README.md)与[记录导航](../records/README.md)。
+2026-10-21 完成复核的 [B 末层与输出端词表 top-64＋tail KL 实验](../../../Native_NVFP4_HiF4_Linear_Puncture/results/reasoning_trace_last_head/run_20261020T031200Z/comparison.md)将这一边界扩展到最终词表目标：固定原 B 前缀、router 和基础权重，仅联合训练末层矩阵及 norm、final norm 和可融合 head matrix，验证 KL 降低约 12.2%，完整 TP2 评测却出现 MMLU-Pro 上升、AIME avg5 下降的任务折中。本轮四项平均正向损失观测变差，但变化的逐题配对 95% 区间跨 0，不能宣称稳定改善或稳定退化，也不能据此判断词表 KL 普遍无效。7 条歧义回答逐条复核后无二元改判；另核对了 7 条到达输出上限且没有最终提交的回答，均按既定口径保留 0。结果限于本轮 B 数据、候选 LR、验证选优及联合训练配方，未拆分各可学习组件的贡献。配置、源代码摘要、原始回答和复核依据见[实验入口](../../../fp4_convert/experiments/reasoning_trace_last_head/README.md)与[记录导航](../records/README.md)。
 
 2026-10-15 的[15 组模块消融](../../../Native_NVFP4_HiF4_Linear_Puncture/results/module_design_ablation/formal_20261008T074812Z/REPORT.md)在约定数据版本恢复和逐题配对验证后确认，模块收益依赖组合及任务：固定 R64 相对直接转换的六项观测均提高；仅学习 DIAG、正交旋转或自由矩阵能提高 MMLU-Pro，但可能降低 ARC/AIME25；独立 norm、router 块矩阵和 λ=1 的 Top-mass KL 没有通用增益。应报告受控配对和每项结果，区分观察到的折中与稳定收益；不能用局部 NMSE/路由指标、某一个下游任务或单轮综合分证明全局最优。等预算 LR 筛选仍会选中不同 LR，因此比较的是各自选优配方；正交共享旋转与权重侧自由矩阵还同时改变正交约束和两侧绑定，不能只归因于其中一项。该结论限定于这轮 native 初始化、S1K 128/32、每层 20 epochs 及有限 LR 候选；没有消融的 NMSE/MSE、分组大小和校准数据优劣仍未建立。
 
-2026-09-30 接续[五项全量精度恢复](../../../Native_NVFP4_HiF4_Linear_Puncture/experiments/downstream_accuracy_recovery/PLAN.md)时，核查到已有 group_top_mass 的 MMLU-Pro 300 题两次分数为 70.00% 与 74.33%。两份保存的模型配置仅模型路径不同，生成参数与引擎 seed 相同，实际输入一致，但 299/300 个生成文本不同。原因尚未证明；不能把差异直接归因于随机 seed，也不能只取最高分代表稳定收益。旧 E0 的实际 prompt 虽匹配，却使用不同的 batch token 容量，需在本轮共同配置下重新评测。
+2026-09-30 接续[五项全量精度恢复](../../../fp4_convert/experiments/downstream_accuracy_recovery/PLAN.md)时，核查到已有 group_top_mass 的 MMLU-Pro 300 题两次分数为 70.00% 与 74.33%。两份保存的模型配置仅模型路径不同，生成参数与引擎 seed 相同，实际输入一致，但 299/300 个生成文本不同。原因尚未证明；不能把差异直接归因于随机 seed，也不能只取最高分代表稳定收益。旧 E0 的实际 prompt 虽匹配，却使用不同的 batch token 容量，需在本轮共同配置下重新评测。
 
 该目标已明确改用 MMLU-Pro 全部 12,032 题，并补全 GSM8K。验收为五项各自 `max(0, 原生分数−转换后分数)` 的百分点等权平均不超过 0.5；旧的 300 题结果和其他任务的提升都不能代替或抵消缺失/退步的任务。此要求限于本目标，不改变其他实验的默认样本范围。
 
@@ -151,3 +167,7 @@ AIME配对重采样按30道题保留各题5个回答，不能当作150道独立�
 普通 TP 归约、累加和舍入差异依 [AGENTS.md](../../../AGENTS.md) 判断是否影响算法结论；局部严格契约仍按协议验证。报告存在、进程退出或某项局部对齐通过，不自动等于全实验完成，也不授权进入后续阶段。
 
 证据导航见 [实验记录](../records/README.md)，计划替代关系见 [方案入口](../../../Native_NVFP4_HiF4_Linear_Puncture/plans/qwen3_30b_a3b/README.md)。
+
+### 编译量化路径与 QA 的有限分数检查（2026-11-20）
+
+N9 融合 MXFP4 的 lm_eval 短测曾在选项 loglikelihood 全为 NaN 时仍写出 acc，且随后清理异常退出。评分表存在不能证明有效计算；先核对逐题概率的有限性、完整覆盖和退出状态。本次显式补齐 Triton 默认 constexpr 参数 FHT32=False，消除 torch.compile 参数分析错误，并在 CLI 返回前关闭 vLLM 引擎；同一8题设置与多批40题设置随后均得到有限分数并正常退出。新入口遇到非有限选项概率立即失败，不替换分数或继续评分。适用证据与失败产物索引见[两小模型单项记录](../records/fp4_single_methods_20261120.md)；这不等于任何方法已取得正式精度提升。

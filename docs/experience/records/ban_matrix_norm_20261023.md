@@ -5,7 +5,7 @@
 和“运行中”描述保留为当时状态，GSM8K 最终结果见“2026-10-25：最终结果核验”。
 追加 MMLU-Pro、LCB、AIME25@5 的首轮补测也已完成并复核；LCB/AIME 的三轮追加重复
 已于 2026-10-27 全部完成，2026-10-28 复核通过，多轮结果见最后一节。
-日期按北京时间。实现入口见 [Ban README](../../../Native_NVFP4_HiF4_Linear_Puncture/experiments/ban/README.md)，
+日期按北京时间。实现入口见 [Ban README](../../../fp4_convert/experiments/ban/README.md)，
 执行边界见 [fake quant 经验](../lessons/fake_quant_boundaries.md)。
 
 ## 模型、来源与配置

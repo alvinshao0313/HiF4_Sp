@@ -1,0 +1,140 @@
+{
+  "protocol": "2-layer real CUDA smoke",
+  "gpu_mapping": {
+    "attention": "2",
+    "moe": "3",
+    "both": "2"
+  },
+  "records": [
+    {
+      "mode": "attention",
+      "complete": true,
+      "completed_layers": [
+        0,
+        1
+      ],
+      "layers": [
+        {
+          "layer": 0,
+          "selected_validation_objective": 0.0025411123199739795,
+          "train_lora_gradient_norms_epoch0": {
+            "attention_lora_A": 0.0,
+            "attention_lora_B": 0.0003225882537662983
+          },
+          "selected_lora_parameter_norms": {
+            "attention_lora_A": 1.1540710926055908,
+            "attention_lora_B": 0.012172630056738853,
+            "moe_lora_A": 1.1562548875808716,
+            "moe_lora_B": 0.0
+          },
+          "train_peak_allocated_bytes_epoch0": 35241227264,
+          "validation_peak_allocated_bytes_epoch0": 23571774464
+        },
+        {
+          "layer": 1,
+          "selected_validation_objective": 0.007840937895672622,
+          "train_lora_gradient_norms_epoch0": {
+            "attention_lora_A": 0.0,
+            "attention_lora_B": 0.027305150404572487
+          },
+          "selected_lora_parameter_norms": {
+            "attention_lora_A": 1.1505694389343262,
+            "attention_lora_B": 0.008179377764463425,
+            "moe_lora_A": 1.1652721166610718,
+            "moe_lora_B": 0.0
+          },
+          "train_peak_allocated_bytes_epoch0": 35124231168,
+          "validation_peak_allocated_bytes_epoch0": 23570988032
+        }
+      ]
+    },
+    {
+      "mode": "moe",
+      "complete": true,
+      "completed_layers": [
+        0,
+        1
+      ],
+      "layers": [
+        {
+          "layer": 0,
+          "selected_validation_objective": 0.0025399771634626814,
+          "train_lora_gradient_norms_epoch0": {
+            "moe_lora_A": 0.0,
+            "moe_lora_B": 0.0008116508834064007
+          },
+          "selected_lora_parameter_norms": {
+            "attention_lora_A": 1.1540634632110596,
+            "attention_lora_B": 0.0,
+            "moe_lora_A": 1.1562213897705078,
+            "moe_lora_B": 0.01274548377841711
+          },
+          "train_peak_allocated_bytes_epoch0": 34615053312,
+          "validation_peak_allocated_bytes_epoch0": 23571774464
+        },
+        {
+          "layer": 1,
+          "selected_validation_objective": 0.007000416469114527,
+          "train_lora_gradient_norms_epoch0": {
+            "moe_lora_A": 0.0,
+            "moe_lora_B": 0.002797745866701007
+          },
+          "selected_lora_parameter_norms": {
+            "attention_lora_A": 1.150593876838684,
+            "attention_lora_B": 0.0,
+            "moe_lora_A": 1.1652721166610718,
+            "moe_lora_B": 0.009024539962410927
+          },
+          "train_peak_allocated_bytes_epoch0": 34502796800,
+          "validation_peak_allocated_bytes_epoch0": 23571774464
+        }
+      ]
+    },
+    {
+      "mode": "both",
+      "complete": true,
+      "completed_layers": [
+        0,
+        1
+      ],
+      "layers": [
+        {
+          "layer": 0,
+          "selected_validation_objective": 0.002537763462391167,
+          "train_lora_gradient_norms_epoch0": {
+            "attention_lora_A": 0.0,
+            "attention_lora_B": 0.0003225882537662983,
+            "moe_lora_A": 0.0,
+            "moe_lora_B": 0.0008116508834064007
+          },
+          "selected_lora_parameter_norms": {
+            "attention_lora_A": 1.15407133102417,
+            "attention_lora_B": 0.0121713662520051,
+            "moe_lora_A": 1.1562213897705078,
+            "moe_lora_B": 0.012744247913360596
+          },
+          "train_peak_allocated_bytes_epoch0": 35241227264,
+          "validation_peak_allocated_bytes_epoch0": 23571971072
+        },
+        {
+          "layer": 1,
+          "selected_validation_objective": 0.007009015304016353,
+          "train_lora_gradient_norms_epoch0": {
+            "attention_lora_A": 0.0,
+            "attention_lora_B": 0.021651366725564003,
+            "moe_lora_A": 0.0,
+            "moe_lora_B": 0.0028112269937992096
+          },
+          "selected_lora_parameter_norms": {
+            "attention_lora_A": 1.1506199836730957,
+            "attention_lora_B": 0.012678433209657669,
+            "moe_lora_A": 1.1653152704238892,
+            "moe_lora_B": 0.012916181236505508
+          },
+          "train_peak_allocated_bytes_epoch0": 35135990784,
+          "validation_peak_allocated_bytes_epoch0": 23571184640
+        }
+      ]
+    }
+  ]
+}

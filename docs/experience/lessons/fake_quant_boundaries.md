@@ -1,6 +1,18 @@
 # fake quant 与实际低比特执行
 
+QUASAR Qwen3.5-4B 的 compressed-tensors NVFP4 全局尺度是量化乘数，转换为 ModelOpt 风格的反量化尺度时需取倒数；字段改名本身不够。2026-11-20 对200个投影各抽取8行，映射后的解码与 compressed-tensors FP32参考解码后转BF16完全一致。该模型共享embedding/head，完整norm融合旋转需拆开输出头，分别处理embedding旋转与末层norm增益；GDN、普通注意力和头部等价性检查，以及完整200投影导出见[本次记录](../records/fp4_single_methods_20261120.md)。这是该发布版本的数值及拓扑证据，不代表任务精度或其他存储方案的通用约定。
+
+全量转换先核对发布索引中的逻辑投影，再映射到引擎融合层。Qwen3.8-27B 的 NVFP4 范围包含输出头，另有 94 个 FP8 投影。AWQ 和 SmoothQuant 对同一融合输入的各分支使用共同尺度，推理按该尺度处理输入。Nemotron 9B 的整模型 CPU 短测验证了校准权重和尺度的保存、重载及实际调用。[四模型基线验证记录](../records/fp4_paper_baselines_20261119.md)
+
 证据状态：包含早期 dense fake quant 实现记录，以及 2026-10-16 原生 packed NVFP4 的真实 TP2 性能短测；不代表正式准确率或原生 FP4 硬件计算核的性能。
+
+2026-11-16 的[格式转换补充实施](../records/thesis_format_conversion_20261116.md)验证了选定权重的导出边界：主线 `_state_to_tensors()` 会再次执行标准HiF4量化，不能直接用于保留层级scale搜索或GPTQ的结果。独立适配直接保存选定BF16 QDQ值，真实第0层388个投影验证了保存重载一致性，实际attention/专家输入检查验证了运行时使用这些值。此证据仅覆盖导出与算子语义，不能由权重MSE降低推断下游精度改善，也不代表packed存储或原生FP4加速。
+
+2026-11-17 的同项续查复现了GPTQ第5层expert35在128条完整S1K上的零路由，router计数与实际投影输入采集计数一致；第0层全部专家被访问并不保证深层覆盖。完全零输入不能交给dead-column逻辑清零权重。扩大校准须保留测试/验证/开发隔离，逐层记录全部专家的真实有效token，并核对gate/up/down采集；样本数增加本身不是覆盖证明。扩大GPTQ数据预算后，与保持128条的A20比较须明确数据量和成本差异，不能继续称为等校准量对照。
+
+2026-11-18 的完整尝试进一步确认：850条S1K修复了旧层4的覆盖，但在新GPTQ前缀下的层21仍有expert29零命中；局部失败层修复不能外推全模型。用户随后改用纯C4并要求先做512×512覆盖检查。原生前缀的覆盖预检和GPTQ转换后的实际覆盖应分别记录；更换数据来源可能改变路由分布，但是否改善覆盖或下游精度仍须新证据，不能由C4名称或样本数量推定。
+
+2026-11-18 用户后续授权改用LLM Compressor式全token、全专家校准，并恢复与A20完全相同的128条S1K。此时必须区分**校准输入覆盖**与**自然路由命中**：gate/up统计全部有效层输入，down统计每个专家实际的SiLU(gate)×up，不能用公共MoE输入替代down；最终输出仍只聚合原top8及其原权重。零自然路由不再触发原来的“无校准输入”失败，真正的零校准或计数遗漏仍失败。32专家分批只限制Hessian驻留，不减少每个专家看到的语料。恢复稀疏传播/推理后检查路由与输出、保存重载，不能把局部校准覆盖写成全模型质量保证；具体实测与最新状态仍见[同一实施记录](../records/thesis_format_conversion_20261116.md)。
 
 [HiF4 实现记录](../records/implementation/hif4_vllm_fake_act_quant.md) 和 [NVFP4 实现记录](../records/implementation/nvfp4_vllm_fake_act_quant.md) 描述 dense Linear 输入上的 quant-dequant，再交给原浮点 GEMM。它们不等于 packed 低比特计算核，也不覆盖全部 MoE 路径。
 

@@ -8,7 +8,7 @@ GPU 0–7 均被其他用户进程占用，TP8 入口记录 `blocked_resources`�
 
 用户确认使用原生 235B 自生成轨迹、完整四任务前后对照，允许空闲时使用 GPU 0–7。
 方法、固定超参数、入口职责、执行顺序及 AIME 复核方法维护在
-[实验 README](../../../Native_NVFP4_HiF4_Linear_Puncture/experiments/qwen3_235b_matrix_norm/README.md)。
+[实验 README](../../../fp4_convert/experiments/qwen3_235b_matrix_norm/README.md)。
 本次没有复用旧 E4/Group 权重、30B 回答或历史原生分数，也没有修改旧实验源码或 Git 暂存状态。
 
 - 模型：`nvidia/Qwen3-235B-A22B-NVFP4`，revision
