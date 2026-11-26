@@ -4,7 +4,7 @@
 
 ## 方法与协议
 
-第三章 BRQ 使用完整融合版 `brq_fused`，配置 ID 为 H12/M15：norm 增益并入相邻权重，embedding、残差输出、输出头及相关输入分支配套旋转。G64/G32 分别对应 HiF4/MXFP4，随机符号 seed=17；推理残差流已经在旋转空间，不再额外在线旋转输入。旧 `brq`、H02/M02 保持在线版本身份，供第四章对照。原始实现中的 embedding 均值调整没有移植，因为它不是本次 RMSNorm 模型的等价变换。
+第三章 BRQ 使用完整融合版 `brq_fused`，配置 ID 为 H12/M15：norm 增益并入相邻权重，embedding、残差输出、输出头及相关输入分支配套旋转。G64/G32 分别对应 HiF4/MXFP4，随机符号 seed=17；推理残差流已经在旋转空间，不再额外在线旋转输入。旧 `brq` 对应当时计划中的 H02/M02。2026-11-26 修订后的第四章以同组宽的标准 Walsh–Hadamard 为旋转参照。原始实现中的 embedding 均值调整没有移植，因为它不是本次 RMSNorm 模型的等价变换。
 
 普通 QA 使用本机 lm_eval 0.4.8，任务为 `arc_challenge,arc_easy,openbookqa,boolq`。按照用户外机命令固定 0-shot、不使用 chat template、batch=128、seed=1234、记录逐题输出；TP2、context=4096、BF16 KV、enforce_eager=False、GPU memory utilization=0.90、max_num_seqs=128、max_num_batched_tokens=8192。逐题记录保留原始指标，论文表格优先使用 acc_norm，任务未提供时使用 acc。跨机复用时核对任务版本和对应指标。五项推理仍使用 lighteval 和 1234/1235/1236；本轮未启动推理全量评测。
 
